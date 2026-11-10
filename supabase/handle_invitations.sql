@@ -76,3 +76,34 @@ revoke all on function public.mw_my_invitations() from public,anon,authenticated
 grant execute on function public.mw_my_invitations() to authenticated;
 revoke all on function public.mw_answer_invitation(uuid,boolean) from public,anon,authenticated;
 grant execute on function public.mw_answer_invitation(uuid,boolean) to authenticated;
+
+-- Direct @handle additions requested by the group owner. Existing invitations remain valid.
+create or replace function mw_invitation_data.add_member_by_handle(p_group uuid,p_handle text) returns text
+language plpgsql security definer set search_path='' as $$
+declare target_user uuid; inserted_count integer;
+begin
+  if auth.uid() is null then raise exception 'Sign in required'; end if;
+  if not exists(select 1 from public.mw_groups where id=p_group and owner_id=auth.uid()) then
+    raise exception 'Group owner required';
+  end if;
+  if lower(ltrim(btrim(p_handle),'@')) !~ '^[a-z0-9_]{3,24}$' or p_handle is null then
+    raise exception 'Invalid handle';
+  end if;
+  select h.user_id into target_user from mw_invitation_data.handles h
+    join auth.users u on u.id=h.user_id
+    where h.handle=lower(ltrim(btrim(p_handle),'@')) and u.email_confirmed_at is not null;
+  if target_user is null then raise exception 'Handle not found'; end if;
+  insert into public.mw_members(group_id,user_id,role) values(p_group,target_user,'member') on conflict do nothing;
+  get diagnostics inserted_count = row_count;
+  update mw_invitation_data.requests set status='accepted' where group_id=p_group and requests.recipient=target_user and status='pending';
+  return case when inserted_count=1 then 'added' else 'already_member' end;
+end $$;
+revoke all on function mw_invitation_data.add_member_by_handle(uuid,text) from public,anon,authenticated;
+grant usage on schema mw_invitation_data to authenticated;
+grant execute on function mw_invitation_data.add_member_by_handle(uuid,text) to authenticated;
+create or replace function public.mw_add_by_handle(p_group uuid,p_handle text) returns text
+language sql security invoker set search_path='' as $$
+  select mw_invitation_data.add_member_by_handle(p_group,p_handle)
+$$;
+revoke all on function public.mw_add_by_handle(uuid,text) from public,anon,authenticated;
+grant execute on function public.mw_add_by_handle(uuid,text) to authenticated;
