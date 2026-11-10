@@ -181,7 +181,8 @@
     friendName=typeof options.friendName==="string"?options.friendName.trim().slice(0,40):"";
     prefs=options.notifications||prefs;
     onRemotePrefs=typeof options.onRemotePrefs==="function"?options.onRemotePrefs:onRemotePrefs;
-    const box=document.querySelector(".forum-panel[data-thread]");
+    // Always bind to the active screen; never reuse a detached chat panel.
+    const box=document.querySelector(".main .forum-panel[data-thread]");
     if(!box){root=null;if(localStorage.getItem(ownerKey)&&navigator.onLine)startClient();return}
     scope=box.dataset.thread||"general";
     box.innerHTML='<div class="wf-app"></div>';
@@ -217,7 +218,7 @@
       html+='<article class="mw-bubble'+(mine?' mine':'')+'">'+(mine?'':'<b>'+esc(names[m.author_id]||(language==="pl"?"Znajomy":"Friend"))+'</b>')+'<p>'+esc(m.body)+'</p><footer>'+esc(date.toLocaleTimeString(locale,{hour:"2-digit",minute:"2-digit"}))+
         (mine?'<details class="mw-message-menu"><summary aria-label="'+esc(t("delete"))+'">⋯</summary>'+button("delete",t("delete"),"link",'aria-label="'+esc(t("delete"))+'" title="'+esc(t("delete"))+'" data-id="'+esc(m.id)+'"')+'</details>':'')+'</footer></article>';
     }
-    return html+'</div><div class="mw-compose"><textarea id="wf-message" rows="1" maxlength="500" placeholder="'+esc(t("message"))+'" aria-label="'+esc(t("message"))+'">'+esc(drafts[draftKey()]||"")+'</textarea><button class="mw-send" data-wf-action="send" aria-label="'+esc(t("send"))+'" title="'+esc(t("send"))+'">➤</button></div>';
+    return html+'</div><div class="mw-compose"><button type="button" class="mw-send" data-wf-action="send" aria-label="'+esc(t("send"))+'" title="'+esc(t("send"))+'">➤</button><textarea id="wf-message" rows="1" maxlength="500" placeholder="'+esc(t("message"))+'" aria-label="'+esc(t("message"))+'">'+esc(drafts[draftKey()]||"")+'</textarea></div>';
   }
   function teamSwitcher(){
     if(groups.length<2)return "";
@@ -226,9 +227,9 @@
   }
   function draw(){
     if(!root||!root.isConnected)return;
-    let html='<div class="wf-title"><strong>🌐 '+t("online")+'</strong><small>'+esc(scope==="general"?"Friends Forum":scope.toUpperCase())+'</small></div>';
+    let html=scope==="account"?'<div class="wf-title"><strong>👤 '+(language==="pl"?"Konto":"Account")+'</strong></div>':'<div class="wf-title"><strong>🌐 '+t("online")+'</strong><small>'+esc(scope==="general"?"Friends Forum":scope.toUpperCase())+'</small></div>';
     if(!client){
-      html+='<h3>'+(language==="pl"?"Logowanie do forum":"Forum sign-in")+'</h3>';
+      html+='<h3>'+(scope==="account"?(language==="pl"?"Logowanie do konta":"Account sign-in"):(language==="pl"?"Połączenie ze znajomymi":"Friends connection"))+'</h3>';
       html+='<p class="wf-info">'+(error?
         (language==="pl"?"Nie udało się uruchomić połączenia z Supabase.":"The connection to Supabase could not be started."):
         t("loading"))+'</p>';
