@@ -12,7 +12,7 @@
       emailSent:"Sprawdź pocztę. Link może otworzyć aplikację w przeglądarce. Jeśli w wiadomości jest kod, wpisz go tutaj.",
       emailNeeded:"Podaj poprawny adres e-mail.",codeNeeded:"Podaj kod z wiadomości.",loginIssue:"Nie udało się zalogować",
       welcome:"Twoje konto",logout:"Wyloguj",nickname:"Twoja nazwa na forum",saveNickname:"Zapisz nazwę",profileNeeded:"Wybierz nazwę widoczną dla znajomych.",
-      handle:"Moja @nazwa do zaproszeń",handleHelp:"Opcjonalnie: 3–24 znaki (a–z, 0–9, _). Zostaw puste, aby wyłączyć.",save:"Zapisz",inviteByName:"Zaproś po @nazwie",sendInvite:"Zaproś",inbox:"Otrzymane zaproszenia",accept:"Przyjmij",decline:"Odrzuć",sentInvite:"Jeśli @nazwa jest aktywna, znajomy zobaczy zaproszenie w aplikacji.",handleTaken:"Ta @nazwa jest zajęta.",invalidHandle:"Użyj 3–24 znaków: a–z, 0–9 lub _.",emptyInbox:"Brak zaproszeń.",
+      handle:"Moja @nazwa do zaproszeń",handleHelp:"Opcjonalnie: 3–24 znaki (a–z, 0–9, _). Zostaw puste, aby wyłączyć.",save:"Zapisz",inviteByName:"Dodaj po @nazwie",sendInvite:"Dodaj",inbox:"Otrzymane zaproszenia",accept:"Przyjmij",decline:"Odrzuć",sentInvite:"Dodano osobę do drużyny.",alreadyMember:"Ta osoba jest już w drużynie.",handleNotFound:"Nie znaleziono tej @nazwy. Znajomy musi zapisać swoją @nazwę w profilu i potwierdzić e-mail.",handleTaken:"Ta @nazwa jest zajęta.",invalidHandle:"Użyj 3–24 znaków: a–z, 0–9 lub _.",emptyInbox:"Brak zaproszeń.",
       groups:"Prywatne grupy",createGroup:"Utwórz własną grupę",groupName:"Nazwa grupy, np. Ekipa z siłowni",create:"Utwórz",
       join:"Dołącz do grupy",inviteCode:"Wklej kod zaproszenia (UUID) lub pełny link",joinButton:"Dołącz",noGroups:"Utwórz grupę albo wklej zaproszenie otrzymane od znajomego.",
       activeGroup:"Aktywna grupa",invite:"Zaproś znajomych",makeInvite:"Wygeneruj zaproszenie",copyInvite:"Kopiuj kod",shareInvite:"Udostępnij zaproszenie",
@@ -36,7 +36,7 @@
       emailSent:"Check your inbox. A link may open in your browser. If the email contains a code, enter it here.",
       emailNeeded:"Enter a valid email address.",codeNeeded:"Enter the code from the email.",loginIssue:"Could not sign in",
       welcome:"Your account",logout:"Sign out",nickname:"Your forum nickname",saveNickname:"Save nickname",profileNeeded:"Choose a name that friends can see.",
-      handle:"My invitation @handle",handleHelp:"Optional: 3–24 characters (a–z, 0–9, _). Leave blank to turn off.",save:"Save",inviteByName:"Invite by @handle",sendInvite:"Invite",inbox:"Received invitations",accept:"Accept",decline:"Decline",sentInvite:"If the handle is active, your friend will see the invitation in the app.",handleTaken:"That handle is taken.",invalidHandle:"Use 3–24 characters: a–z, 0–9 or _.",emptyInbox:"No invitations.",
+      handle:"My invitation @handle",handleHelp:"Optional: 3–24 characters (a–z, 0–9, _). Leave blank to turn off.",save:"Save",inviteByName:"Add by @handle",sendInvite:"Add",inbox:"Received invitations",accept:"Accept",decline:"Decline",sentInvite:"Added to the team.",alreadyMember:"This person is already in the team.",handleNotFound:"Handle not found. Your friend must save this @handle in their profile and confirm their email.",handleTaken:"That handle is taken.",invalidHandle:"Use 3–24 characters: a–z, 0–9 or _.",emptyInbox:"No invitations.",
       groups:"Private groups",createGroup:"Create a group",groupName:"Group name, e.g. Gym Crew",create:"Create",
       join:"Join a group",inviteCode:"Paste invite UUID or full link",joinButton:"Join",noGroups:"Create a group or paste an invitation from a friend.",
       activeGroup:"Current group",invite:"Invite friends",makeInvite:"Generate invite",copyInvite:"Copy code",shareInvite:"Share invite",
@@ -424,10 +424,11 @@
         const saving=action==="save-handle";
         const handle=document.getElementById(saving?"wf-handle":"wf-target").value.trim().replace(/^@/,"").toLowerCase();
         if(!(saving&&!handle)&&!/^[a-z0-9_]{3,24}$/.test(handle))throw new Error(t("invalidHandle"));
-        const result=saving?await client.rpc("mw_set_invite_handle",{p_handle:handle}):await client.rpc("mw_invite_by_handle",{p_group:group.id,p_handle:handle});
-        if(result.error)throw result.error.code==="23505"?new Error(t("handleTaken")):result.error;
+        const result=saving?await client.rpc("mw_set_invite_handle",{p_handle:handle}):await client.rpc("mw_add_by_handle",{p_group:group.id,p_handle:handle});
+        if(result.error)throw result.error.code==="23505"?new Error(t("handleTaken")):result.error.message==="Handle not found"?new Error(t("handleNotFound")):result.error;
         if(saving)await loadInvitations();
-        notice=t(saving?"nicknameSaved":"sentInvite");
+        notice=t(saving?"nicknameSaved":result.data==="already_member"?"alreadyMember":"sentInvite");
+        if(!saving){document.getElementById("wf-target").value="";await loadMessages()}
       }else if(action==="reload-inbox"){
         await loadInvitations();
       }else if(action==="accept-invite"||action==="decline-invite"){
@@ -487,7 +488,7 @@
         const r=await client.from("mw_messages").insert({group_id:group.id,thread_key:scope,author_id:user.id,body:text});
         if(r.error)throw r.error;
         delete drafts[draftKey()];notice="";await loadMessages();
-      }else if(action==="refresh"){await loadMessages()}
+      }else if(action==="refresh"){await refreshAccount()}
       else if(action==="delete"){
         const id=button.dataset.id;
         if(!validUUID(id)||!confirm(t("deleteConfirm")))return;
