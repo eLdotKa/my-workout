@@ -74,13 +74,36 @@
   function loadLibrary(){
     if(window.supabase?.createClient)return Promise.resolve(window.supabase);
     if(loadingClient)return loadingClient;
+    const sources=[
+      "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
+      "https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"
+    ];
     loadingClient=new Promise((resolve,reject)=>{
-      const tag=document.createElement("script");
-      tag.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-      tag.async=true;
-      tag.onload=()=>window.supabase?.createClient?resolve(window.supabase):reject(new Error("Supabase library unavailable"));
-      tag.onerror=()=>reject(new Error("Supabase library could not load"));
-      document.head.appendChild(tag);
+      let index=0;
+      function tryNext(){
+        if(window.supabase?.createClient){resolve(window.supabase);return}
+        if(index>=sources.length){
+          reject(new Error(language==="pl"?
+            "Nie udało się załadować logowania. Sprawdź internet i kliknij Spróbuj ponownie.":
+            "Could not load sign-in. Check your connection and select Try again."));
+          return;
+        }
+        const tag=document.createElement("script");
+        tag.src=sources[index++];
+        tag.async=true;
+        let done=false;
+        const timer=setTimeout(()=>finish(false),10000);
+        function finish(ok){
+          if(done)return;
+          done=true;clearTimeout(timer);
+          if(ok&&window.supabase?.createClient)resolve(window.supabase);
+          else{tag.remove();tryNext()}
+        }
+        tag.onload=()=>finish(true);
+        tag.onerror=()=>finish(false);
+        document.head.appendChild(tag);
+      }
+      tryNext();
     });
     return loadingClient;
   }
@@ -205,8 +228,15 @@
     if(!root||!root.isConnected)return;
     let html='<div class="wf-title"><strong>🌐 '+t("online")+'</strong><small>'+esc(scope==="general"?"Friends Forum":scope.toUpperCase())+'</small></div>';
     if(!client){
-      html+='<p class="wf-info">'+t("loading")+'</p>';
-      if(error)html+='<p class="wf-error">'+esc(error)+'</p><p class="wf-info">'+t("offline")+'</p>';
+      html+='<h3>'+(language==="pl"?"Logowanie do forum":"Forum sign-in")+'</h3>';
+      html+='<p class="wf-info">'+(error?
+        (language==="pl"?"Nie udało się uruchomić połączenia z Supabase.":"The connection to Supabase could not be started."):
+        t("loading"))+'</p>';
+      if(error)html+='<p class="wf-error" role="alert">'+esc(error)+'</p>';
+      html+=button("retry-connect",language==="pl"?"Spróbuj ponownie":"Try again","secondary");
+      html+='<p class="wf-small">'+(language==="pl"?
+        "Uruchom aplikację z połączeniem internetowym. Wersja z ikony na iPhonie może wymagać osobnego logowania, ale Twoja grupa zostaje na koncie.":
+        "Open the app with an internet connection. Your Home Screen version may need a separate sign-in, but your group remains on your account.")+'</p>';
     }else if(!user){
       html+='<h3>'+t("login")+'</h3><p class="wf-info">'+t("loginInfo")+'</p>';
       html+='<p class="wf-small">'+(language==="pl"?
@@ -448,6 +478,11 @@
     error="";notice="";
     busy=true;
     try{
+      if(action==="retry-connect"){
+        boot=null;loadingClient=null;error="";notice="";
+        startClient();
+        return;
+      }
       if(action==="menu"){menuOpen=!menuOpen;return}
       if(action==="sharing"){
         const gid=group.id,uid=user.id,sharing=button.checked;
