@@ -12,6 +12,7 @@
       emailSent:"Sprawdź pocztę. Link może otworzyć aplikację w przeglądarce. Jeśli w wiadomości jest kod, wpisz go tutaj.",
       emailNeeded:"Podaj poprawny adres e-mail.",codeNeeded:"Podaj kod z wiadomości.",loginIssue:"Nie udało się zalogować",
       welcome:"Twoje konto",logout:"Wyloguj",nickname:"Twoja nazwa na forum",saveNickname:"Zapisz nazwę",profileNeeded:"Wybierz nazwę widoczną dla znajomych.",
+      handle:"Moja @nazwa do zaproszeń",handleHelp:"Opcjonalnie: 3–24 znaki (a–z, 0–9, _). Zostaw puste, aby wyłączyć.",save:"Zapisz",inviteByName:"Zaproś po @nazwie",sendInvite:"Zaproś",inbox:"Otrzymane zaproszenia",accept:"Przyjmij",decline:"Odrzuć",sentInvite:"Jeśli @nazwa jest aktywna, znajomy zobaczy zaproszenie w aplikacji.",handleTaken:"Ta @nazwa jest zajęta.",invalidHandle:"Użyj 3–24 znaków: a–z, 0–9 lub _.",emptyInbox:"Brak zaproszeń.",
       groups:"Prywatne grupy",createGroup:"Utwórz własną grupę",groupName:"Nazwa grupy, np. Ekipa z siłowni",create:"Utwórz",
       join:"Dołącz do grupy",inviteCode:"Wklej kod zaproszenia (UUID) lub pełny link",joinButton:"Dołącz",noGroups:"Utwórz grupę albo wklej zaproszenie otrzymane od znajomego.",
       activeGroup:"Aktywna grupa",invite:"Zaproś znajomych",makeInvite:"Wygeneruj zaproszenie",copyInvite:"Kopiuj kod",shareInvite:"Udostępnij zaproszenie",
@@ -35,6 +36,7 @@
       emailSent:"Check your inbox. A link may open in your browser. If the email contains a code, enter it here.",
       emailNeeded:"Enter a valid email address.",codeNeeded:"Enter the code from the email.",loginIssue:"Could not sign in",
       welcome:"Your account",logout:"Sign out",nickname:"Your forum nickname",saveNickname:"Save nickname",profileNeeded:"Choose a name that friends can see.",
+      handle:"My invitation @handle",handleHelp:"Optional: 3–24 characters (a–z, 0–9, _). Leave blank to turn off.",save:"Save",inviteByName:"Invite by @handle",sendInvite:"Invite",inbox:"Received invitations",accept:"Accept",decline:"Decline",sentInvite:"If the handle is active, your friend will see the invitation in the app.",handleTaken:"That handle is taken.",invalidHandle:"Use 3–24 characters: a–z, 0–9 or _.",emptyInbox:"No invitations.",
       groups:"Private groups",createGroup:"Create a group",groupName:"Group name, e.g. Gym Crew",create:"Create",
       join:"Join a group",inviteCode:"Paste invite UUID or full link",joinButton:"Join",noGroups:"Create a group or paste an invitation from a friend.",
       activeGroup:"Current group",invite:"Invite friends",makeInvite:"Generate invite",copyInvite:"Copy code",shareInvite:"Share invite",
@@ -99,6 +101,15 @@
     await refreshAccount();
     return client;
   }
+  let myHandle="",inbox=[],inboxUser="";
+  async function loadInvitations(){
+    const uid=user?.id;
+    if(!uid)return;
+    const [own,invites]=await Promise.all([client.rpc("mw_my_invite_handle"),client.rpc("mw_my_invitations")]);
+    if(uid!==user?.id)return;
+    if(own.error||invites.error)throw own.error||invites.error;
+    inboxUser=uid;myHandle=own.data||"";inbox=invites.data||[];
+  }
   let roster=[], inviteGroup="", pendingCode=new URLSearchParams(location.search).get("mw_invite")||"";
   function mount(options={}){
     language=options.lang==="pl"?"pl":"en";
@@ -117,6 +128,8 @@
     draw();
     if(!boot){
       boot=init().catch(e=>{error=apiError(e);draw();});
+    } else if(client&&user&&box.dataset.members){
+      refreshAccount().catch(e=>setStatus("",apiError(e)));
     } else if(client&&user&&group) {
       loadMessages().catch(e=>setStatus("",apiError(e)));
     }
@@ -147,6 +160,14 @@
         html+=button("nickname",t("saveNickname"),"",busy?"disabled":"");
       }else{
         html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
+        html+='<details class="wf-details"><summary>'+t("handle")+(inboxUser===user.id&&myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",inboxUser===user.id?myHandle:"")+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
+        html+='<h3>'+t("inbox")+'</h3>'+button("reload-inbox",t("refresh"),"secondary");
+        if(inboxUser===user.id&&inbox.length){
+          for(const invite of inbox){
+            const attr='data-id="'+esc(invite.invite_id)+'"';
+            html+='<div class="wf-account"><span>'+esc(invite.group_name)+' · '+esc(invite.inviter_name)+'</span>'+button("accept-invite",t("accept"),"",attr)+button("decline-invite",t("decline"),"secondary",attr)+'</div>';
+          }
+        }else html+='<p class="wf-small">'+t("emptyInbox")+'</p>';
         html+='<h3>'+t("groups")+'</h3>';
         if(groups.length){
           html+='<label class="wf-field">'+t("selectGroup")+'<select id="wf-group">'+groups.map(g=>'<option value="'+esc(g.id)+'" '+(group?.id===g.id?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></label>';
@@ -158,6 +179,7 @@
         if(group){
           html+='<p class="wf-info">🔒 '+esc(group.name)+' · '+t("sessionInfo")+'</p>';
           if(group.owner_id===user.id){
+            html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
             html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
             if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
             html+='<p class="wf-small">'+t("inviteInfo")+'</p></details>';
@@ -204,6 +226,7 @@
     }
     const gs=await client.from("mw_groups").select("id,name,owner_id").order("created_at",{ascending:false});
     if(gs.error)throw gs.error;
+    await loadInvitations();
     groups=gs.data||[];
     let preferred="";
     try{preferred=localStorage.getItem(GROUP_KEY)||""}catch(_){}
@@ -295,7 +318,22 @@
     error="";notice="";
     busy=true;
     try{
-      if(action==="email"){
+      if(action==="save-handle"||action==="invite-handle"){
+        const saving=action==="save-handle";
+        const handle=document.getElementById(saving?"wf-handle":"wf-target").value.trim().replace(/^@/,"").toLowerCase();
+        if(!(saving&&!handle)&&!/^[a-z0-9_]{3,24}$/.test(handle))throw new Error(t("invalidHandle"));
+        const result=saving?await client.rpc("mw_set_invite_handle",{p_handle:handle}):await client.rpc("mw_invite_by_handle",{p_group:group.id,p_handle:handle});
+        if(result.error)throw result.error.code==="23505"?new Error(t("handleTaken")):result.error;
+        if(saving)await loadInvitations();
+        notice=t(saving?"nicknameSaved":"sentInvite");
+      }else if(action==="reload-inbox"){
+        await loadInvitations();
+      }else if(action==="accept-invite"||action==="decline-invite"){
+        const result=await client.rpc("mw_answer_invitation",{p_id:button.dataset.id,p_accept:action==="accept-invite"});
+        if(result.error)throw result.error;
+        if(result.data)try{localStorage.setItem(GROUP_KEY,result.data)}catch(_){}
+        await refreshAccount();
+      }else if(action==="email"){
         const v=(document.getElementById("wf-email")?.value||email).trim();
         if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))throw new Error(t("emailNeeded"));
         email=v;
