@@ -187,6 +187,11 @@
     }
     return html+'</div><div class="mw-compose"><textarea id="wf-message" rows="1" maxlength="500" placeholder="'+esc(t("message"))+'" aria-label="'+esc(t("message"))+'">'+esc(drafts[draftKey()]||"")+'</textarea><button class="mw-send" data-wf-action="send" aria-label="'+esc(t("send"))+'" title="'+esc(t("send"))+'">➤</button></div>';
   }
+  function teamSwitcher(){
+    if(groups.length<2)return "";
+    const buttons=groups.map(team=>'<button type="button" class="mw-team-tab" data-wf-action="switch-team" data-id="'+esc(team.id)+'" aria-pressed="'+(team.id===group.id)+'">'+esc(team.name)+'</button>');
+    return '<div class="mw-team-strip" role="group" aria-label="'+esc(t("selectGroup"))+'">'+buttons.join("")+'</div>';
+  }
   function draw(){
     if(!root||!root.isConnected)return;
     let html='<div class="wf-title"><strong>🌐 '+t("online")+'</strong><small>'+esc(scope==="general"?"Friends Forum":scope.toUpperCase())+'</small></div>';
@@ -207,6 +212,7 @@
       if(group&&profile){
         const label=language==="pl"?"Opcje drużyny":"Team options";
         html='<div class="mw-chat-head"><span class="mw-avatar" aria-hidden="true">'+esc(Array.from(group.name)[0]?.toUpperCase()||"•")+'</span><div><strong>'+esc(group.name)+'</strong><small>'+esc(membersView?(language==="pl"?"Drużyna":"Team"):(scope==="general"?(language==="pl"?"Czat drużyny":"Team chat"):scope.toUpperCase()))+'</small></div><button type="button" class="mw-more" data-wf-action="menu" aria-label="'+label+'" title="'+label+'" aria-expanded="'+menuOpen+'">⋮</button></div>';
+        html+=teamSwitcher();
         if(!membersView&&!menuOpen)html+=conversation();
       }
       if(group&&profile){
@@ -279,7 +285,21 @@
     const expanded=same?Array.from(root.querySelectorAll("details[open] > summary"),el=>el.textContent):[];
     const editing=same&&root.contains(document.activeElement)?document.activeElement:null;
     const fieldState=editing?.matches('input:not([type=checkbox]), textarea')&&editing.id!=="wf-message"?{id:editing.id,value:editing.value}:null;
+    const oldStrip=root.querySelector(".mw-team-strip");
+    const offset=oldStrip?.scrollLeft||0;
+    const focusedTeam=document.activeElement?.dataset?.wfAction==="switch-team";
     root.innerHTML=html;
+    const strip=root.querySelector(".mw-team-strip");
+    if(strip){
+      strip.scrollLeft=offset;
+      const current=strip.querySelector('[aria-pressed="true"]');
+      if(current&&(!same||!oldStrip)){
+        const tab=current.getBoundingClientRect(),bounds=strip.getBoundingClientRect();
+        if(tab.left<bounds.left)strip.scrollLeft+=tab.left-bounds.left-8;
+        else if(tab.right>bounds.right)strip.scrollLeft+=tab.right-bounds.right+8;
+      }
+      if(focusedTeam&&current)current.focus({preventScroll:true});
+    }
     root.dataset.context=menuContext;root.dataset.menu=String(menuOpen);
     for(const summary of root.querySelectorAll("details > summary"))if(expanded.includes(summary.textContent))summary.parentElement.open=true;
     if(fieldState){const field=document.getElementById(fieldState.id);if(field){field.value=fieldState.value;field.focus({preventScroll:true})}}
@@ -348,6 +368,7 @@
     const ids=[...new Set(messages.map(m=>m.author_id))].filter(v=>v!==user?.id);
     if(ids.length){
       const n=await client.from("mw_profiles").select("user_id,nickname").in("user_id",ids);
+      if(number!==requestId||targetGroup!==group?.id||targetScope!==scope)return;
       if(!n.error)(n.data||[]).forEach(p=>names[p.user_id]=p.nickname);
     }
     draw();
@@ -361,12 +382,18 @@
   async function subscribe(){
     if(!client||!group)return;
     if(channel&&channelGroup===group.id)return;
-    if(channel){await client.removeChannel(channel);channel=null}
-    channelGroup=group.id;
+    const gid=group.id,uid=user.id;
+    if(channel){
+      const previous=channel;
+      channel=null;
+      await client.removeChannel(previous);
+      if(group?.id!==gid||user?.id!==uid||channel)return;
+    }
+    channelGroup=gid;
     channel=client.channel("mw-forum-"+group.id+"-"+user.id)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"mw_messages",filter:"group_id=eq."+group.id},p=>{
         const m=p.new;
-        if(!m)return;
+        if(!m||group?.id!==gid||user?.id!==uid)return;
         if(m.thread_key===scope)loadMessages().catch(()=>{});
         if(m.author_id===user.id||!notificationAllowed())return;
         showToast("💬 My Workout: "+(m.body||"").slice(0,100));
@@ -507,19 +534,21 @@
     const b=event.target.closest("[data-wf-action]");
     if(!b)return;
     event.preventDefault();event.stopPropagation();
+    if(b.dataset.wfAction==="switch-team"){selectTeam(b.dataset.id);return}
     act(b.dataset.wfAction,b);
   }
   function handleSubmit(event){event.preventDefault()}
-  function handleChange(event){
-    if(event.target.id!=="wf-group")return;
-    const selected=groups.find(g=>g.id===event.target.value);
+  function selectTeam(id){
+    if(busy){draw();return}
+    const selected=groups.find(g=>g.id===id);
     if(!selected||selected.id===group?.id)return;
-    group=selected;roster=[];inviteCode="";inviteGroup="";messages=[];names={};
+    group=selected;notice="";error="";progressGroup="";roster=[];inviteCode="";inviteGroup="";messages=[];names={};
     try{localStorage.setItem(GROUP_KEY,group.id)}catch(_){}
+    draw();
     loadMessages().catch(e=>setStatus("",apiError(e)));
   }
   function attachEvents(){
-    document.addEventListener("change",ev=>{if(ev.target.id==="wf-sharing")act("sharing",ev.target);if(ev.target.id==="wf-group")handleChange(ev)});
+    document.addEventListener("change",ev=>{if(ev.target.id==="wf-sharing")act("sharing",ev.target);if(ev.target.id==="wf-group")selectTeam(ev.target.value)});
   }
   attachEvents();
   window.MyWorkoutForum={
