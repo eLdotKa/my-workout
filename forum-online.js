@@ -288,10 +288,6 @@
             }
           }
       }
-      if(group&&profile){
-        html+='<div class="mw-menu" '+(menuOpen?'':'hidden')+'>';
-        if(!membersView)html+='<button class="wf-btn secondary" data-action="forum-back">'+(language==="pl"?"Członkowie i postępy":"Members and progress")+'</button>';
-      }
       if(!group){html+='<p class="wf-info">'+(language==="pl"?"Nie wybrano grupy. Utwórz ją lub dołącz w Settings.":"No team selected. Create or join one in Settings.")+'</p>';}
       if(group&&profile){
         html+='<div class="mw-menu" '+(menuOpen?'':'hidden')+'>';
@@ -309,10 +305,6 @@
     }
     if(user&&profile&&group){
       html+=button("refresh",t("refresh"),"secondary");
-      if(false && !root.parentElement.dataset.members && notificationSettings){
-        html+='<details class="wf-details"><summary>'+(language==="pl"?"Powiadomienia":"Notifications")+'</summary>'+notificationSettings()+("Notification" in window?button("alerts",t("enabled"),"secondary"):"")+'</details>';
-      }
-      html+='</div>';
     }
     if(notice)html+='<p class="wf-ok" role="status">'+esc(notice)+'</p>';
     if(error&&client)html+='<p class="wf-error" role="alert">'+esc(error)+'</p>';
