@@ -237,6 +237,9 @@
       html+='<p class="wf-small">'+(language==="pl"?
         "Uruchom aplikację z połączeniem internetowym. Wersja z ikony na iPhonie może wymagać osobnego logowania, ale Twoja grupa zostaje na koncie.":
         "Open the app with an internet connection. Your Home Screen version may need a separate sign-in, but your group remains on your account.")+'</p>';
+    }else if(!user&&scope!=="account"){
+      html+='<p class="wf-info">'+(language==="pl"?"Zaloguj się w Settings, aby korzystać z grup i rozmów. Treningi działają bez konta.":"Sign in from Settings to use groups and chat. Workouts work without an account.")+'</p>';
+      html+=button("go-settings",language==="pl"?"Przejdź do Settings":"Open Settings","secondary");
     }else if(!user){
       html+='<h3>'+t("login")+'</h3><p class="wf-info">'+t("loginInfo")+'</p>';
       html+='<p class="wf-small">'+(language==="pl"?
@@ -247,6 +250,10 @@
       html+=field("wf-otp",t("code"),"text","123456","",'inputmode="numeric" autocomplete="one-time-code" maxlength="12"');
       html+=button("verify",t("confirmCode"),"secondary",busy?"disabled":"");
       html+='<p class="wf-small">'+t("emailLimit")+'</p>';
+    }else if(scope==="account"){
+      html+='<h3>'+(language==="pl"?"Moje konto":"My account")+'</h3>';
+      html+='<p class="wf-info">'+esc(user.email||"")+'</p>';
+      html+=button("signout",language==="pl"?"Wyloguj":"Sign out","secondary");
     }else{
       const membersView=!!root.parentElement.dataset.members;
       const context=[user.id,group?.id,scope,membersView].join("/");
@@ -582,6 +589,7 @@
     const b=event.target.closest("[data-wf-action]");
     if(!b)return;
     event.preventDefault();event.stopPropagation();
+    if(b.dataset.wfAction==="go-settings"){document.querySelector('[data-action="nav"][data-screen="settings"]')?.click();return}
     if(b.dataset.wfAction==="switch-team"){selectTeam(b.dataset.id);return}
     act(b.dataset.wfAction,b);
   }
