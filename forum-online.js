@@ -197,11 +197,11 @@
       const remote=await client.from("mw_notification_prefs").select("messages_enabled,mute_until").eq("user_id",user.id).maybeSingle();
       if(!remote.error&&remote.data&&onRemotePrefs)onRemotePrefs(remote.data);
     }
-    const urlToken=new URL(location.href).searchParams.get("mw_invite");
+    const urlToken=(String(location.search||"").match(/(?:\?|&)mw_invite=([0-9a-f-]{36})(?:&|$)/i)||[])[1]||null;
     if(urlToken&&validUUID(urlToken)){
       try{
         await joinInvite(urlToken,true);
-        const clean=new URL(location.href);clean.searchParams.delete("mw_invite");history.replaceState({},document.title,clean.toString());
+        history.replaceState({},document.title,location.pathname||"/my-workout/");
         await refreshAccount();return;
       }catch(e){error=apiError(e)}
     }
