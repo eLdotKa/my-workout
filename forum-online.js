@@ -56,7 +56,7 @@
   const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let language="en",prefs={messages:true,muteUntil:null},root=null,scope="general",onRemotePrefs=null;
   let client=null,loadingClient=null,boot=null,user=null,profile="",groups=[],group=null,messages=[],names={},channel=null,channelGroup="";
-  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteLink="",started=false,requestId=0,drafts={};
+  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteLink="",started=false,requestId=0,drafts={},friendName="",automaticProfileAttemptedFor="";
   const t=k=>(LANG[language]||LANG.en)[k]||k;
   function apiError(e){
     const v=String(e?.message||e||t("actionError")).slice(0,220);
@@ -101,6 +101,7 @@
   }
   function mount(options={}){
     language=options.lang==="pl"?"pl":"en";
+    friendName=typeof options.friendName==="string"?options.friendName.trim().slice(0,40):"";
     prefs=options.notifications||prefs;
     onRemotePrefs=typeof options.onRemotePrefs==="function"?options.onRemotePrefs:onRemotePrefs;
     const box=document.querySelector(".forum-panel[data-thread]");
@@ -141,7 +142,7 @@
     }else{
       html+='<div class="wf-account"><small>'+t("welcome")+': '+esc(user.email||"")+'</small>'+button("signout",t("logout"),"link")+'</div>';
       if(!profile){
-        html+='<h3>'+t("profileNeeded")+'</h3>'+field("wf-nick",t("nickname"),"text",t("nickname"),"", 'maxlength="40"');
+        html+='<h3>'+t("profileNeeded")+'</h3>'+field("wf-nick",t("nickname"),"text",t("nickname"),friendName, 'maxlength="40"');
         html+=button("nickname",t("saveNickname"),"",busy?"disabled":"");
       }else{
         html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
@@ -186,6 +187,16 @@
     const prof=await client.from("mw_profiles").select("nickname").eq("user_id",user.id).maybeSingle();
     if(prof.error)throw prof.error;
     profile=prof.data?.nickname||"";
+    if(!profile&&friendName&&automaticProfileAttemptedFor!==user.id){
+      automaticProfileAttemptedFor=user.id;
+      try{
+        await ensureProfile(friendName);
+      }catch(e){
+        // Keep the saved Friends name in the editable input.
+        // The owner may still need to run 002_fix_profile_permissions.sql.
+        error=apiError(e);
+      }
+    }
     const gs=await client.from("mw_groups").select("id,name,owner_id").order("created_at",{ascending:false});
     if(gs.error)throw gs.error;
     groups=gs.data||[];
