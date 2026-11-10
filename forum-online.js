@@ -56,7 +56,7 @@
   const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let language="en",prefs={messages:true,muteUntil:null},root=null,scope="general",onRemotePrefs=null;
   let client=null,loadingClient=null,boot=null,user=null,profile="",groups=[],group=null,messages=[],names={},channel=null,channelGroup="";
-  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteLink="",started=false,requestId=0;
+  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteLink="",started=false,requestId=0,drafts={};
   const t=k=>(LANG[language]||LANG.en)[k]||k;
   function apiError(e){
     const v=String(e?.message||e||t("actionError")).slice(0,220);
@@ -111,6 +111,7 @@
     if(!root)return;
     root.addEventListener("click",handleClick);
     root.addEventListener("submit",handleSubmit);
+    root.addEventListener("input",ev=>{if(ev.target.id==="wf-message")drafts[scope]=ev.target.value});
     draw();
     if(!boot){
       boot=init().catch(e=>{error=apiError(e);draw();});
@@ -159,7 +160,7 @@
             if(inviteLink) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteLink)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
             html+='<p class="wf-small">'+t("inviteInfo")+'</p></details>';
           }
-          html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'"></textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
+          html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'">'+esc(drafts[scope]||"")+'</textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
           html+='<div class="wf-header"><h3>'+t("messageCount")+'</h3>'+button("refresh","↻ "+t("refresh"),"secondary")+'</div>';
           if(!messages.length)html+='<p class="wf-info">'+t("noMessages")+'</p>';
           html+=messages.map(m=>{
@@ -323,7 +324,7 @@
         if(!text)throw new Error(t("message"));
         const r=await client.from("mw_messages").insert({group_id:group.id,thread_key:scope,author_id:user.id,body:text});
         if(r.error)throw r.error;
-        notice=t("added");await loadMessages();
+        delete drafts[scope];notice=t("added");await loadMessages();
       }else if(action==="refresh"){await loadMessages()}
       else if(action==="delete"){
         const id=button.dataset.id;
