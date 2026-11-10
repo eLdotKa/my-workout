@@ -229,7 +229,7 @@
     if(!root||!root.isConnected)return;
     let html=scope==="account"?'<div class="wf-title"><strong>👤 '+(language==="pl"?"Konto":"Account")+'</strong></div>':'<div class="wf-title"><strong>🌐 '+t("online")+'</strong><small>'+esc(scope==="general"?"Friends Forum":scope.toUpperCase())+'</small></div>';
     if(!client){
-      html+='<h3>'+(language==="pl"?"Logowanie do forum":"Forum sign-in")+'</h3>';
+      html+='<h3>'+(scope==="account"?(language==="pl"?"Logowanie do konta":"Account sign-in"):(language==="pl"?"Połączenie ze znajomymi":"Friends connection"))+'</h3>';
       html+='<p class="wf-info">'+(error?
         (language==="pl"?"Nie udało się uruchomić połączenia z Supabase.":"The connection to Supabase could not be started."):
         t("loading"))+'</p>';
