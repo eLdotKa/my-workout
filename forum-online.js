@@ -12,9 +12,10 @@
       emailSent:"Sprawdź pocztę. Link może otworzyć aplikację w przeglądarce. Jeśli w wiadomości jest kod, wpisz go tutaj.",
       emailNeeded:"Podaj poprawny adres e-mail.",codeNeeded:"Podaj kod z wiadomości.",loginIssue:"Nie udało się zalogować",
       welcome:"Twoje konto",logout:"Wyloguj",nickname:"Twoja nazwa na forum",saveNickname:"Zapisz nazwę",profileNeeded:"Wybierz nazwę widoczną dla znajomych.",
+      handle:"Moja @nazwa do zaproszeń",handleHelp:"Opcjonalnie: 3–24 znaki (a–z, 0–9, _). Zostaw puste, aby wyłączyć.",save:"Zapisz",inviteByName:"Zaproś po @nazwie",sendInvite:"Zaproś",inbox:"Otrzymane zaproszenia",accept:"Przyjmij",decline:"Odrzuć",sentInvite:"Jeśli @nazwa jest aktywna, znajomy zobaczy zaproszenie w aplikacji.",handleTaken:"Ta @nazwa jest zajęta.",invalidHandle:"Użyj 3–24 znaków: a–z, 0–9 lub _.",emptyInbox:"Brak zaproszeń.",
       groups:"Prywatne grupy",createGroup:"Utwórz własną grupę",groupName:"Nazwa grupy, np. Ekipa z siłowni",create:"Utwórz",
       join:"Dołącz do grupy",inviteCode:"Wklej kod zaproszenia (UUID) lub pełny link",joinButton:"Dołącz",noGroups:"Utwórz grupę albo wklej zaproszenie otrzymane od znajomego.",
-      activeGroup:"Aktywna grupa",invite:"Zaproś znajomych",makeInvite:"Wygeneruj zaproszenie",copyInvite:"Kopiuj link",shareInvite:"Udostępnij zaproszenie",
+      activeGroup:"Aktywna grupa",invite:"Zaproś znajomych",makeInvite:"Wygeneruj zaproszenie",copyInvite:"Kopiuj kod",shareInvite:"Udostępnij zaproszenie",
       inviteInfo:"Zaproszenie wygasa po 7 dniach lub po 10 wykorzystaniach.",groupError:"Nie udało się pobrać grup.",
       posts:"Wiadomości",message:"Twoja wiadomość…",send:"Wyślij",noMessages:"Na razie nie ma wiadomości. Rozpocznij rozmowę.",
       delete:"Usuń",deleteConfirm:"Usunąć tę wiadomość?",refresh:"Odśwież",now:"Teraz",sessionInfo:"Tylko osoby z tej grupy widzą wiadomości.",
@@ -35,9 +36,10 @@
       emailSent:"Check your inbox. A link may open in your browser. If the email contains a code, enter it here.",
       emailNeeded:"Enter a valid email address.",codeNeeded:"Enter the code from the email.",loginIssue:"Could not sign in",
       welcome:"Your account",logout:"Sign out",nickname:"Your forum nickname",saveNickname:"Save nickname",profileNeeded:"Choose a name that friends can see.",
+      handle:"My invitation @handle",handleHelp:"Optional: 3–24 characters (a–z, 0–9, _). Leave blank to turn off.",save:"Save",inviteByName:"Invite by @handle",sendInvite:"Invite",inbox:"Received invitations",accept:"Accept",decline:"Decline",sentInvite:"If the handle is active, your friend will see the invitation in the app.",handleTaken:"That handle is taken.",invalidHandle:"Use 3–24 characters: a–z, 0–9 or _.",emptyInbox:"No invitations.",
       groups:"Private groups",createGroup:"Create a group",groupName:"Group name, e.g. Gym Crew",create:"Create",
       join:"Join a group",inviteCode:"Paste invite UUID or full link",joinButton:"Join",noGroups:"Create a group or paste an invitation from a friend.",
-      activeGroup:"Current group",invite:"Invite friends",makeInvite:"Generate invite",copyInvite:"Copy link",shareInvite:"Share invite",
+      activeGroup:"Current group",invite:"Invite friends",makeInvite:"Generate invite",copyInvite:"Copy code",shareInvite:"Share invite",
       inviteInfo:"Invitations expire after 7 days or 10 uses.",groupError:"Could not load groups.",
       posts:"Messages",message:"Write a message…",send:"Send",noMessages:"No messages yet. Start the conversation.",
       delete:"Delete",deleteConfirm:"Delete this message?",refresh:"Refresh",now:"Now",sessionInfo:"Only members of this group can see the messages.",
@@ -56,7 +58,7 @@
   const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let language="en",prefs={messages:true,muteUntil:null},root=null,scope="general",onRemotePrefs=null;
   let client=null,loadingClient=null,boot=null,user=null,profile="",groups=[],group=null,messages=[],names={},channel=null,channelGroup="";
-  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteLink="",started=false,requestId=0,drafts={},friendName="",automaticProfileAttemptedFor="";
+  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteCode="",started=false,requestId=0,drafts={},friendName="",automaticProfileAttemptedFor="";
   const t=k=>(LANG[language]||LANG.en)[k]||k;
   function apiError(e){
     const v=String(e?.message||e||t("actionError")).slice(0,220);
@@ -99,6 +101,16 @@
     await refreshAccount();
     return client;
   }
+  let myHandle="",inbox=[],inboxUser="";
+  async function loadInvitations(){
+    const uid=user?.id;
+    if(!uid)return;
+    const [own,invites]=await Promise.all([client.rpc("mw_my_invite_handle"),client.rpc("mw_my_invitations")]);
+    if(uid!==user?.id)return;
+    if(own.error||invites.error)throw own.error||invites.error;
+    inboxUser=uid;myHandle=own.data||"";inbox=invites.data||[];
+  }
+  let roster=[], inviteGroup="", pendingCode=new URLSearchParams(location.search).get("mw_invite")||"";
   function mount(options={}){
     language=options.lang==="pl"?"pl":"en";
     friendName=typeof options.friendName==="string"?options.friendName.trim().slice(0,40):"";
@@ -116,6 +128,8 @@
     draw();
     if(!boot){
       boot=init().catch(e=>{error=apiError(e);draw();});
+    } else if(client&&user&&box.dataset.members){
+      refreshAccount().catch(e=>setStatus("",apiError(e)));
     } else if(client&&user&&group) {
       loadMessages().catch(e=>setStatus("",apiError(e)));
     }
@@ -146,6 +160,14 @@
         html+=button("nickname",t("saveNickname"),"",busy?"disabled":"");
       }else{
         html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
+        html+='<details class="wf-details"><summary>'+t("handle")+(inboxUser===user.id&&myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",inboxUser===user.id?myHandle:"")+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
+        html+='<h3>'+t("inbox")+'</h3>'+button("reload-inbox",t("refresh"),"secondary");
+        if(inboxUser===user.id&&inbox.length){
+          for(const invite of inbox){
+            const attr='data-id="'+esc(invite.invite_id)+'"';
+            html+='<div class="wf-account"><span>'+esc(invite.group_name)+' · '+esc(invite.inviter_name)+'</span>'+button("accept-invite",t("accept"),"",attr)+button("decline-invite",t("decline"),"secondary",attr)+'</div>';
+          }
+        }else html+='<p class="wf-small">'+t("emptyInbox")+'</p>';
         html+='<h3>'+t("groups")+'</h3>';
         if(groups.length){
           html+='<label class="wf-field">'+t("selectGroup")+'<select id="wf-group">'+groups.map(g=>'<option value="'+esc(g.id)+'" '+(group?.id===g.id?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></label>';
@@ -153,14 +175,18 @@
           html+='<p class="wf-info">'+t("noGroups")+'</p>';
         }
         html+='<details class="wf-details" '+(!groups.length?'open':'')+'><summary>+ '+t("createGroup")+'</summary>'+field("wf-groupname",t("groupName"),"text","My Workout",'','maxlength="60"')+button("create",t("create"),"",busy?"disabled":"")+'</details>';
-        html+='<details class="wf-details" '+(!groups.length?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",'','maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
+        html+='<details class="wf-details" '+(!groups.length||validUUID(pendingCode)?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",validUUID(pendingCode)?pendingCode:"",'maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
         if(group){
           html+='<p class="wf-info">🔒 '+esc(group.name)+' · '+t("sessionInfo")+'</p>';
           if(group.owner_id===user.id){
-            html+='<details class="wf-details"><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
-            if(inviteLink) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteLink)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
+            html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
+            html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
+            if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
             html+='<p class="wf-small">'+t("inviteInfo")+'</p></details>';
           }
+          if(root.parentElement.dataset.members){
+            html+='<h3>'+ (language==="pl"?"Członkowie drużyny":"Team members")+'</h3><ul>'+roster.map(n=>'<li>'+esc(n)+'</li>').join("")+'</ul>';
+          }else{
           html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'">'+esc(drafts[scope]||"")+'</textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
           html+='<div class="wf-header"><h3>'+t("messageCount")+'</h3>'+button("refresh","↻ "+t("refresh"),"secondary")+'</div>';
           if(!messages.length)html+='<p class="wf-info">'+t("noMessages")+'</p>';
@@ -173,6 +199,7 @@
           html+='<p class="wf-small">'+t("auto")+'</p>';
           html+='<p class="wf-small">'+t("noPush")+'</p>';
           if("Notification" in window)html+=button("alerts",t("enabled"),"secondary");
+          }
         }
       }
     }
@@ -183,7 +210,7 @@
   async function refreshAccount(){
     if(!client)return;
     if(channel){await client.removeChannel(channel);channel=null;channelGroup=""}
-    if(!user){profile="";groups=[];group=null;messages=[];draw();return}
+    if(!user){profile="";groups=[];group=null;messages=[];roster=[];inviteCode="";inviteGroup="";draw();return}
     const prof=await client.from("mw_profiles").select("nickname").eq("user_id",user.id).maybeSingle();
     if(prof.error)throw prof.error;
     profile=prof.data?.nickname||"";
@@ -199,6 +226,7 @@
     }
     const gs=await client.from("mw_groups").select("id,name,owner_id").order("created_at",{ascending:false});
     if(gs.error)throw gs.error;
+    await loadInvitations();
     groups=gs.data||[];
     let preferred="";
     try{preferred=localStorage.getItem(GROUP_KEY)||""}catch(_){}
@@ -209,19 +237,22 @@
       const remote=await client.from("mw_notification_prefs").select("messages_enabled,mute_until").eq("user_id",user.id).maybeSingle();
       if(!remote.error&&remote.data&&onRemotePrefs)onRemotePrefs(remote.data);
     }
-    const urlToken=(String(location.search||"").match(/(?:\?|&)mw_invite=([0-9a-f-]{36})(?:&|$)/i)||[])[1]||null;
-    if(urlToken&&validUUID(urlToken)){
-      try{
-        await joinInvite(urlToken,true);
-        history.replaceState({},document.title,location.pathname||"/my-workout/");
-        await refreshAccount();return;
-      }catch(e){error=apiError(e)}
-    }
     await loadMessages();
   }
   async function loadMessages(){
     if(!client||!user||!group){messages=[];draw();return}
     const targetGroup=group.id,targetScope=scope,number=++requestId;
+    if(root?.parentElement.dataset.members){
+      const members=await client.from("mw_members").select("user_id").eq("group_id",targetGroup);
+      if(members.error)throw members.error;
+      const ids=members.data.map(m=>m.user_id);
+      const profiles=ids.length?await client.from("mw_profiles").select("user_id,nickname").in("user_id",ids):{data:[]};
+      if(profiles.error)throw profiles.error;
+      if(number!==requestId||targetGroup!==group?.id)return;
+      const byId=new Map(profiles.data.map(p=>[p.user_id,p.nickname]));
+      roster=ids.map(id=>byId.get(id)||(language==="pl"?"Członek":"Member"));
+      draw();return;
+    }
     const out=await client.from("mw_messages").select("id,group_id,thread_key,author_id,body,created_at")
       .eq("group_id",targetGroup).eq("thread_key",targetScope)
       .order("created_at",{ascending:false}).limit(100);
@@ -287,7 +318,22 @@
     error="";notice="";
     busy=true;
     try{
-      if(action==="email"){
+      if(action==="save-handle"||action==="invite-handle"){
+        const saving=action==="save-handle";
+        const handle=document.getElementById(saving?"wf-handle":"wf-target").value.trim().replace(/^@/,"").toLowerCase();
+        if(!(saving&&!handle)&&!/^[a-z0-9_]{3,24}$/.test(handle))throw new Error(t("invalidHandle"));
+        const result=saving?await client.rpc("mw_set_invite_handle",{p_handle:handle}):await client.rpc("mw_invite_by_handle",{p_group:group.id,p_handle:handle});
+        if(result.error)throw result.error.code==="23505"?new Error(t("handleTaken")):result.error;
+        if(saving)await loadInvitations();
+        notice=t(saving?"nicknameSaved":"sentInvite");
+      }else if(action==="reload-inbox"){
+        await loadInvitations();
+      }else if(action==="accept-invite"||action==="decline-invite"){
+        const result=await client.rpc("mw_answer_invitation",{p_id:button.dataset.id,p_accept:action==="accept-invite"});
+        if(result.error)throw result.error;
+        if(result.data)try{localStorage.setItem(GROUP_KEY,result.data)}catch(_){}
+        await refreshAccount();
+      }else if(action==="email"){
         const v=(document.getElementById("wf-email")?.value||email).trim();
         if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))throw new Error(t("emailNeeded"));
         email=v;
@@ -318,16 +364,19 @@
       }else if(action==="join"){
         const token=document.getElementById("wf-invite")?.value;
         await joinInvite(token);
+        pendingCode="";
+        if(new URLSearchParams(location.search).has("mw_invite"))history.replaceState({},document.title,location.pathname+location.hash);
       }else if(action==="make-invite"){
         if(!group||group.owner_id!==user?.id)throw new Error(t("notOwner"));
         const r=await client.rpc("mw_create_invite",{p_group:group.id});if(r.error)throw r.error;
-        inviteLink=APP+"?mw_invite="+r.data;
+        inviteCode=r.data;inviteGroup=group.id;
       }else if(action==="copy-invite"){
-        const val=document.getElementById("wf-link")?.value||inviteLink;
+        const val=document.getElementById("wf-link")?.value||inviteCode;
         if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(val);notice=t("copied")}
         else{const field=document.getElementById("wf-link");field?.select();notice=t("copyInvite")}
       }else if(action==="share-invite"){
-        if(navigator.share)await navigator.share({title:"My Workout",text:inviteLink,url:inviteLink});
+        const inviteLink=APP+"?mw_invite="+encodeURIComponent(inviteCode);
+        if(navigator.share)await navigator.share({title:"My Workout",url:inviteLink});
         else if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(inviteLink);notice=t("copied")}
       }else if(action==="send"){
         const input=document.getElementById("wf-message");
@@ -362,7 +411,7 @@
     if(event.target.id!=="wf-group")return;
     const selected=groups.find(g=>g.id===event.target.value);
     if(!selected||selected.id===group?.id)return;
-    group=selected;inviteLink="";messages=[];names={};
+    group=selected;roster=[];inviteCode="";inviteGroup="";messages=[];names={};
     try{localStorage.setItem(GROUP_KEY,group.id)}catch(_){}
     loadMessages().catch(e=>setStatus("",apiError(e)));
   }
