@@ -174,7 +174,51 @@ function renderFriends(){let mine=mySnapshot(),all=[{...mine,self:true},...Objec
 function renderSettings(){let n=data.notifications||{started:true,finished:true,all:false};const pref=(key,title,desc,checked,disabled=false)=>`<label class="notification-option"><input type="checkbox" data-action="notification-pref" data-pref="${key}" ${checked?'checked':''} ${disabled?'disabled':''}><span><strong>${tr(title)}</strong><small>${tr(desc)}</small></span></label>`;return `${header(tr('settings'),tr('subtitle'))}<main class="main"><section class="card settings"><h3>${tr('notificationTitle')}</h3><p>${tr('notificationInfo')}</p><div class="notification-choices">${pref('started','notificationStart','notificationStartInfo',n.started,n.all)}${pref('finished','notificationFinish','notificationFinishInfo',n.finished,n.all)}${pref('all','notificationAll','notificationAllInfo',n.all)}</div><p class="notification-pending">${tr('notificationPending')}</p></section>${renderMessageSettings()}<section class="card settings"><h3>${tr('startDate')}</h3><p>${tr('startExplain')}</p><input class="dateinput" type="date" data-action="start-date" value="${esc(data.startDate)}"></section><section class="card settings"><h3>${tr('dataTitle')}</h3><p>${tr('dataExplain')}</p><div class="actions"><button class="button" data-action="export">↓ ${tr('export')}</button><button class="button secondary" data-action="import">↑ ${tr('import')}</button></div></section><section class="card settings"><h3>${tr('installTitle')}</h3><p>${tr('installExplain')}</p><button class="button secondary hidden" id="install-btn" data-action="install">${tr('install')}</button></section><section class="card settings"><h3>${tr('aboutTitle')}</h3><p>${tr('about')}</p><p><a href="./guide.html" style="color:var(--green);font-weight:750">${data.lang==='pl'?'Krótka instrukcja obsługi →':'Quick guide →'}</a></p><button class="button danger" data-action="reset">${tr('reset')}</button></section></main>${nav()}`}
 function render(){document.documentElement.lang=data.lang;document.title=data.lang==='pl'?'Mój trening · 12 tygodni':'My Workout · 12 weeks';el.innerHTML=screen==='workout'?renderWorkout():screen==='history'?renderHistory():screen==='forum'?renderForum():screen==='stats'?renderStats():screen==='friends'?renderFriends():screen==='settings'?renderSettings():renderPlan();const btn=document.getElementById('install-btn');if(btn&&installPrompt)btn.classList.remove('hidden')}
 function scrollTop(){window.scrollTo({top:0,behavior:'instant'})}
-function act(e){const b=e.target.closest('[data-action]');if(!b)return;let a=b.dataset.action,id=b.dataset.id,i=Number(b.dataset.ex);
+function handleForumAction(a,b){
+  if(a==='open-forum'){screen='forum';editing=null;render();scrollTop();return true}
+  if(a==='forum-back'){screen='friends';render();scrollTop();return true}
+  if(a==='post-message'){
+    const key=b.dataset.scope;
+    if(key!=='general'&&!W.some(w=>w.id===key))return true;
+    const input=document.getElementById('forum-input-'+key),msg=(input?.value||'').trim().slice(0,500);
+    if(!msg){toast(ft('postLength'));return true}
+    data.localThreads ||= {};
+    data.localThreads[key] ||= [];
+    const author=(data.friends?.displayName||'').trim().slice(0,32)||ft('author');
+    data.localThreads[key].push({id:'m'+Date.now().toString(36)+Math.random().toString(36).slice(2,8),text:msg,author,createdAt:new Date().toISOString()});
+    data.localThreads[key]=data.localThreads[key].slice(-100);
+    persist();render();toast(ft('postSaved'));return true;
+  }
+  if(a==='delete-message'){
+    const key=b.dataset.scope,messageId=b.dataset.id;
+    if(key!=='general'&&!W.some(w=>w.id===key))return true;
+    if(!confirm(ft('deleteConfirm')))return true;
+    const before=data.localThreads?.[key];if(!Array.isArray(before))return true;
+    data.localThreads[key]=before.filter(p=>p.id!==messageId);persist();render();return true;
+  }
+  if(a==='share-message'){
+    const key=b.dataset.scope;
+    if(key!=='general'&&!W.some(w=>w.id===key))return true;
+    const post=threadPosts(key).find(p=>p.id===b.dataset.id);if(!post)return true;
+    const textMsg='My Workout · '+(key==='general'?ft('forum'):key)+'\n'+post.text;
+    if(navigator.share){navigator.share({title:'My Workout',text:textMsg}).catch(()=>{})}
+    else if(navigator.clipboard?.writeText){navigator.clipboard.writeText(textMsg).then(()=>toast(nt('copied'))).catch(()=>toast(nt('shareFailed')))}
+    else toast(ft('sharedCopy'));
+    return true;
+  }
+  if(a==='message-mute'){
+    const h=Number(b.dataset.hours);if(![1,8,24,168].includes(h))return true;
+    data.notifications ||= {};
+    data.notifications.messages=true;
+    data.notifications.muteUntil=new Date(Date.now()+h*3600000).toISOString();
+    persist();render();return true;
+  }
+  if(a==='message-unmute'){
+    data.notifications ||= {};data.notifications.messages=true;data.notifications.muteUntil=null;persist();render();return true;
+  }
+  return false;
+}
+function act(e){const b=e.target.closest('[data-action]');if(!b)return;let a=b.dataset.action,id=b.dataset.id,i=Number(b.dataset.ex);if(handleForumAction(a,b))return;
 if(a==='exercise-art'){
 const chosen=W.flatMap(w=>w.exercises).find(ex=>ex.en===b.dataset.name);
 if(!chosen)return;
@@ -220,7 +264,7 @@ if(a==='reset'){if(confirm(tr('resetConfirm'))){let lang=data.lang;data=emptyDat
 if(a==='install'&&installPrompt){installPrompt.prompt();installPrompt.userChoice.finally(()=>{installPrompt=null;render()});return}
 }
 document.addEventListener('click',act);
-document.addEventListener('change',e=>{if(e.target.dataset.action==='notification-pref'){const k=e.target.dataset.pref;if(!['started','finished','all'].includes(k))return;if(!data.notifications)data.notifications={started:true,finished:true,all:false};data.notifications[k]=e.target.checked;if(k==='all'&&e.target.checked){data.notifications.started=false;data.notifications.finished=false;}else if(k==='all'&&!e.target.checked){data.notifications.started=true;data.notifications.finished=true;}persist();render();return;}let a=e.target.dataset.action,id=e.target.dataset.id;if(a==='date'&&e.target.value){data.dates[id]=e.target.value;persist();toast(tr('saved'))}if(a==='start-date'&&e.target.value){data.startDate=e.target.value;shareCode='';persist();toast(tr('saved'))}if(a==='weight'&&e.target.value!==''){let n=Number(e.target.value);if(Number.isFinite(n)&&n>=0&&n<=1000){session(id).weights[Number(e.target.dataset.ex)]=String(n);persist()}}});
+document.addEventListener('change',e=>{if(e.target.dataset.action==='message-notify'){data.notifications ||= {};data.notifications.messages=e.target.checked;data.notifications.muteUntil=null;persist();render();return}if(e.target.dataset.action==='notification-pref'){const k=e.target.dataset.pref;if(!['started','finished','all'].includes(k))return;if(!data.notifications)data.notifications={started:true,finished:true,all:false};data.notifications[k]=e.target.checked;if(k==='all'&&e.target.checked){data.notifications.started=false;data.notifications.finished=false;}else if(k==='all'&&!e.target.checked){data.notifications.started=true;data.notifications.finished=true;}persist();render();return;}let a=e.target.dataset.action,id=e.target.dataset.id;if(a==='date'&&e.target.value){data.dates[id]=e.target.value;persist();toast(tr('saved'))}if(a==='start-date'&&e.target.value){data.startDate=e.target.value;shareCode='';persist();toast(tr('saved'))}if(a==='weight'&&e.target.value!==''){let n=Number(e.target.value);if(Number.isFinite(n)&&n>=0&&n<=1000){session(id).weights[Number(e.target.dataset.ex)]=String(n);persist()}}});
 document.addEventListener('change',e=>{if(e.target.id==='friends-name'){data.friends.displayName=e.target.value.trim().slice(0,32);shareCode='';persist()}});
 document.getElementById('backup-file').addEventListener('change',async e=>{let file=e.target.files?.[0];if(!file)return;try{let d=JSON.parse(await file.text());if(![1,2].includes(d.version)||!d.sessions||!d.dates||!d.startDate)throw Error('Invalid');if(confirm(tr('importConfirm'))){data=migrate(d);persist();editing=null;shareCode='';screen='plan';week=1;render();toast(tr('imported'))}}catch(err){toast(tr('badImport'))}e.target.value=''});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;render()});
