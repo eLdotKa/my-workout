@@ -92,6 +92,7 @@
       if(event==="INITIAL_SESSION")return;
       const next=authSession?.user||null;
       if(next?.id===user?.id&&event!=="SIGNED_OUT")return;
+      if(event==="SIGNED_OUT")localStorage.removeItem(ownerKey);
       user=next;
       setTimeout(()=>refreshAccount().catch(e=>setStatus("",apiError(e))),0);
     });
@@ -110,14 +111,45 @@
     if(own.error||invites.error)throw own.error||invites.error;
     inboxUser=uid;myHandle=own.data||"";inbox=invites.data||[];
   }
+  let totalsForSharing=null,progressRows=[],progressGroup="",progressUser="",flushing=false,retryTimer;
+  const ownerKey="mw-progress-account-v1";
+  const queueKey=uid=>"mw-progress-pending-v1-"+uid;
+  function queueProgress(totals){
+    const uid=localStorage.getItem(ownerKey);
+    if(!uid||(user&&user.id!==uid))return;
+    localStorage.setItem(queueKey(uid),JSON.stringify(totals));
+    flushProgress();
+  }
+  async function flushProgress(){
+    const uid=user?.id;
+    if(!uid||!client||flushing||!navigator.onLine)return;
+    const key=queueKey(uid);
+    flushing=true;
+    try{
+      let raw;
+      while(user?.id===uid&&(raw=localStorage.getItem(key))){
+        const {exercises,workouts}=JSON.parse(raw);
+        const result=await client.from("mw_team_progress").update({exercises,workouts}).eq("user_id",uid).eq("sharing",true);
+        if(result.error)throw result.error;
+        if(localStorage.getItem(key)===raw)localStorage.removeItem(key);
+      }
+    }catch(e){
+      clearTimeout(retryTimer);retryTimer=setTimeout(flushProgress,15000);
+    }finally{flushing=false}
+  }
+  function startClient(){
+    if(!boot)boot=init().catch(e=>{boot=null;loadingClient=null;error=apiError(e);draw()});
+  }
+  window.addEventListener("online",()=>{startClient();flushProgress()});
   let roster=[], inviteGroup="", pendingCode=new URLSearchParams(location.search).get("mw_invite")||"";
   function mount(options={}){
+    totalsForSharing=options.teamTotals;
     language=options.lang==="pl"?"pl":"en";
     friendName=typeof options.friendName==="string"?options.friendName.trim().slice(0,40):"";
     prefs=options.notifications||prefs;
     onRemotePrefs=typeof options.onRemotePrefs==="function"?options.onRemotePrefs:onRemotePrefs;
     const box=document.querySelector(".forum-panel[data-thread]");
-    if(!box){root=null;return}
+    if(!box){root=null;if(localStorage.getItem(ownerKey)&&navigator.onLine)startClient();return}
     scope=box.dataset.thread||"general";
     box.innerHTML='<div class="wf-app"></div>';
     root=box.querySelector(".wf-app");
@@ -127,7 +159,7 @@
     root.addEventListener("input",ev=>{if(ev.target.id==="wf-message")drafts[scope]=ev.target.value});
     draw();
     if(!boot){
-      boot=init().catch(e=>{error=apiError(e);draw();});
+      startClient();
     } else if(client&&user&&box.dataset.members){
       refreshAccount().catch(e=>setStatus("",apiError(e)));
     } else if(client&&user&&group) {
@@ -154,6 +186,34 @@
       html+=button("verify",t("confirmCode"),"secondary",busy?"disabled":"");
       html+='<p class="wf-small">'+t("emailLimit")+'</p>';
     }else{
+      if(profile&&group&&!root.parentElement.dataset.members){
+        html+='<h3>💬 '+esc(group.name)+'</h3>';
+          html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'">'+esc(drafts[scope]||"")+'</textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
+          html+='<div class="wf-header"><h3>'+t("messageCount")+'</h3>'+button("refresh","↻ "+t("refresh"),"secondary")+'</div>';
+          if(!messages.length)html+='<p class="wf-info">'+t("noMessages")+'</p>';
+          html+=messages.map(m=>{
+            const stamp=new Date(m.created_at).toLocaleString(language==="pl"?"pl-PL":"en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+            const author=m.author_id===user.id?t("you"):(names[m.author_id]||"Friend");
+            return '<article class="forum-post"><div class="forum-post-header"><strong>'+esc(author)+'</strong><small>'+esc(stamp)+'</small></div><p>'+esc(m.body)+'</p>'+
+              (m.author_id===user.id?'<div class="forum-post-actions">'+button("delete",t("delete"),"link",'data-id="'+esc(m.id)+'"')+'</div>':'')+'</article>';
+          }).join("");
+          html+='<p class="wf-small">'+t("auto")+'</p>';
+          html+='<p class="wf-small">'+t("noPush")+'</p>';
+          if("Notification" in window)html+=button("alerts",t("enabled"),"secondary");
+      }
+      if(group&&profile){
+          if(root.parentElement.dataset.members){
+            if(progressGroup===group.id&&progressUser===user.id){
+              const mine=progressRows.find(p=>p.user_id===user.id);
+              html+='<label class="wf-field"><span><input id="wf-sharing" type="checkbox" '+(mine?.sharing?'checked ':'')+(busy?'disabled':'')+'> '+(language==="pl"?"Udostępniaj mój postęp tej drużynie":"Share my progress with this team")+'</span></label>';
+              html+='<h3>'+(language==="pl"?"Postępy drużyny":"Team progress")+'</h3><ul>'+roster.map(member=>{
+                const score=progressRows.find(p=>p.user_id===member.id&&p.sharing);
+                const summary=score?(language==="pl"?'Ćwiczenia: '+score.exercises+' · Treningi: '+score.workouts:'Exercises: '+score.exercises+' · Workouts: '+score.workouts):(language==="pl"?"Postęp prywatny":"Progress private");
+                return '<li><strong>'+esc(member.name)+'</strong> · '+summary+'</li>';
+              }).join("")+'</ul>';
+            }
+          }
+      }
       html+='<div class="wf-account"><small>'+t("welcome")+': '+esc(user.email||"")+'</small>'+button("signout",t("logout"),"link")+'</div>';
       if(!profile){
         html+='<h3>'+t("profileNeeded")+'</h3>'+field("wf-nick",t("nickname"),"text",t("nickname"),friendName, 'maxlength="40"');
@@ -184,22 +244,7 @@
             if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
             html+='<p class="wf-small">'+t("inviteInfo")+'</p></details>';
           }
-          if(root.parentElement.dataset.members){
-            html+='<h3>'+ (language==="pl"?"Członkowie drużyny":"Team members")+'</h3><ul>'+roster.map(n=>'<li>'+esc(n)+'</li>').join("")+'</ul>';
-          }else{
-          html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'">'+esc(drafts[scope]||"")+'</textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
-          html+='<div class="wf-header"><h3>'+t("messageCount")+'</h3>'+button("refresh","↻ "+t("refresh"),"secondary")+'</div>';
-          if(!messages.length)html+='<p class="wf-info">'+t("noMessages")+'</p>';
-          html+=messages.map(m=>{
-            const stamp=new Date(m.created_at).toLocaleString(language==="pl"?"pl-PL":"en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
-            const author=m.author_id===user.id?t("you"):(names[m.author_id]||"Friend");
-            return '<article class="forum-post"><div class="forum-post-header"><strong>'+esc(author)+'</strong><small>'+esc(stamp)+'</small></div><p>'+esc(m.body)+'</p>'+
-              (m.author_id===user.id?'<div class="forum-post-actions">'+button("delete",t("delete"),"link",'data-id="'+esc(m.id)+'"')+'</div>':'')+'</article>';
-          }).join("");
-          html+='<p class="wf-small">'+t("auto")+'</p>';
-          html+='<p class="wf-small">'+t("noPush")+'</p>';
-          if("Notification" in window)html+=button("alerts",t("enabled"),"secondary");
-          }
+
         }
       }
     }
@@ -210,7 +255,9 @@
   async function refreshAccount(){
     if(!client)return;
     if(channel){await client.removeChannel(channel);channel=null;channelGroup=""}
-    if(!user){profile="";groups=[];group=null;messages=[];roster=[];inviteCode="";inviteGroup="";draw();return}
+    if(!user){if(navigator.onLine)localStorage.removeItem(ownerKey);profile="";groups=[];group=null;messages=[];roster=[];inviteCode="";inviteGroup="";draw();return}
+    localStorage.setItem(ownerKey,user.id);
+    flushProgress();
     const prof=await client.from("mw_profiles").select("nickname").eq("user_id",user.id).maybeSingle();
     if(prof.error)throw prof.error;
     profile=prof.data?.nickname||"";
@@ -248,10 +295,14 @@
       const ids=members.data.map(m=>m.user_id);
       const profiles=ids.length?await client.from("mw_profiles").select("user_id,nickname").in("user_id",ids):{data:[]};
       if(profiles.error)throw profiles.error;
-      if(number!==requestId||targetGroup!==group?.id)return;
+      const uid=user.id;
+      const progress=await client.from("mw_team_progress").select("user_id,sharing,exercises,workouts").eq("group_id",targetGroup);
+      if(progress.error)throw progress.error;
+      if(number!==requestId||targetGroup!==group?.id||uid!==user?.id)return;
+      progressRows=progress.data;progressGroup=targetGroup;progressUser=uid;
       const byId=new Map(profiles.data.map(p=>[p.user_id,p.nickname]));
-      roster=ids.map(id=>byId.get(id)||(language==="pl"?"Członek":"Member"));
-      draw();return;
+      roster=ids.map(id=>({id,name:byId.get(id)||(language==="pl"?"Członek":"Member")}));
+      draw();subscribe();return;
     }
     const out=await client.from("mw_messages").select("id,group_id,thread_key,author_id,body,created_at")
       .eq("group_id",targetGroup).eq("thread_key",targetScope)
@@ -287,7 +338,11 @@
         if("Notification" in window&&Notification.permission==="granted"&&navigator.serviceWorker?.ready){
           navigator.serviceWorker.ready.then(reg=>reg.showNotification("My Workout",{body:(m.body||"").slice(0,110),tag:"mw-"+m.id})).catch(()=>{});
         }
-      }).subscribe();
+      }).on("postgres_changes",{event:"*",schema:"public",table:"mw_team_progress",filter:"group_id=eq."+group.id},()=>{
+        if(root?.parentElement.dataset.members)loadMessages().catch(e=>setStatus("",apiError(e)));
+      }).subscribe(status=>{
+        if(status==="SUBSCRIBED"&&root)loadMessages().catch(e=>setStatus("",apiError(e)));
+      });
   }
   async function joinInvite(token,automatic=false){
     const clean=String(token||"").match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0]||"";
@@ -318,7 +373,18 @@
     error="";notice="";
     busy=true;
     try{
-      if(action==="save-handle"||action==="invite-handle"){
+      if(action==="sharing"){
+        const gid=group.id,uid=user.id,sharing=button.checked;
+        const values={sharing,...(sharing?totalsForSharing():{exercises:null,workouts:null})};
+        const update=()=>client.from("mw_team_progress").update(values).eq("group_id",gid).eq("user_id",uid).select("user_id");
+        let result=await update();
+        if(!result.error&&!result.data.length&&sharing){
+          result=await client.from("mw_team_progress").insert({group_id:gid,user_id:uid,...values});
+          if(result.error?.code==="23505")result=await update();
+        }
+        if(result.error)throw result.error;
+        await loadMessages();
+      }else if(action==="save-handle"||action==="invite-handle"){
         const saving=action==="save-handle";
         const handle=document.getElementById(saving?"wf-handle":"wf-target").value.trim().replace(/^@/,"").toLowerCase();
         if(!(saving&&!handle)&&!/^[a-z0-9_]{3,24}$/.test(handle))throw new Error(t("invalidHandle"));
@@ -416,11 +482,11 @@
     loadMessages().catch(e=>setStatus("",apiError(e)));
   }
   function attachEvents(){
-    document.addEventListener("change",ev=>{if(ev.target.id==="wf-group")handleChange(ev)});
+    document.addEventListener("change",ev=>{if(ev.target.id==="wf-sharing")act("sharing",ev.target);if(ev.target.id==="wf-group")handleChange(ev)});
   }
   attachEvents();
   window.MyWorkoutForum={
-    mount,
+    mount,queueProgress,
     savePrefs:p=>{savePrefs(p).catch(e=>console.warn(e))},
     isNotificationEnabled:notificationAllowed,
     version:"1.0"
