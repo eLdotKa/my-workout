@@ -143,6 +143,7 @@
   window.addEventListener("online",()=>{startClient();flushProgress()});
   let roster=[], inviteGroup="", pendingCode=new URLSearchParams(location.search).get("mw_invite")||"";
   function mount(options={}){
+    notificationSettings=options.notificationSettings;
     totalsForSharing=options.teamTotals;
     language=options.lang==="pl"?"pl":"en";
     friendName=typeof options.friendName==="string"?options.friendName.trim().slice(0,40):"";
@@ -156,7 +157,7 @@
     if(!root)return;
     root.addEventListener("click",handleClick);
     root.addEventListener("submit",handleSubmit);
-    root.addEventListener("input",ev=>{if(ev.target.id==="wf-message")drafts[scope]=ev.target.value});
+    root.addEventListener("input",ev=>{if(ev.target.id==="wf-message")drafts[draftKey()]=ev.target.value});
     draw();
     if(!boot){
       startClient();
@@ -172,6 +173,20 @@
   function field(id,label,type="text",placeholder="",value="",extra=""){
     return '<label class="wf-field">'+esc(label)+'<input id="'+id+'" type="'+type+'" placeholder="'+esc(placeholder)+'" value="'+esc(value)+'" '+extra+'></label>';
   }
+  const draftKey=()=>[user?.id,group?.id,scope].join("/");
+  let menuOpen=false,menuContext="",notificationSettings=null;
+  function conversation(){
+    const locale=language==="pl"?"pl-PL":"en-GB";
+    let day="",html='<div class="mw-stream" role="log" aria-label="'+esc(t("messageCount"))+'">';
+    if(!messages.length)html+='<p class="mw-empty">'+esc(t("noMessages"))+'</p>';
+    for(const m of [...messages].reverse()){
+      const mine=m.author_id===user.id,date=new Date(m.created_at),label=date.toLocaleDateString(locale,{day:"numeric",month:"short",year:"numeric"});
+      if(label!==day){day=label;html+='<span class="mw-date">'+esc(label)+'</span>'}
+      html+='<article class="mw-bubble'+(mine?' mine':'')+'">'+(mine?'':'<b>'+esc(names[m.author_id]||(language==="pl"?"Znajomy":"Friend"))+'</b>')+'<p>'+esc(m.body)+'</p><footer>'+esc(date.toLocaleTimeString(locale,{hour:"2-digit",minute:"2-digit"}))+
+        (mine?'<details class="mw-message-menu"><summary aria-label="'+esc(t("delete"))+'">⋯</summary>'+button("delete",t("delete"),"link",'aria-label="'+esc(t("delete"))+'" title="'+esc(t("delete"))+'" data-id="'+esc(m.id)+'"')+'</details>':'')+'</footer></article>';
+    }
+    return html+'</div><div class="mw-compose"><textarea id="wf-message" rows="1" maxlength="500" placeholder="'+esc(t("message"))+'" aria-label="'+esc(t("message"))+'">'+esc(drafts[draftKey()]||"")+'</textarea><button class="mw-send" data-wf-action="send" aria-label="'+esc(t("send"))+'" title="'+esc(t("send"))+'">➤</button></div>';
+  }
   function draw(){
     if(!root||!root.isConnected)return;
     let html='<div class="wf-title"><strong>🌐 '+t("online")+'</strong><small>'+esc(scope==="general"?"Friends Forum":scope.toUpperCase())+'</small></div>';
@@ -186,20 +201,13 @@
       html+=button("verify",t("confirmCode"),"secondary",busy?"disabled":"");
       html+='<p class="wf-small">'+t("emailLimit")+'</p>';
     }else{
-      if(profile&&group&&!root.parentElement.dataset.members){
-        html+='<h3>💬 '+esc(group.name)+'</h3>';
-          html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'">'+esc(drafts[scope]||"")+'</textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
-          html+='<div class="wf-header"><h3>'+t("messageCount")+'</h3>'+button("refresh","↻ "+t("refresh"),"secondary")+'</div>';
-          if(!messages.length)html+='<p class="wf-info">'+t("noMessages")+'</p>';
-          html+=messages.map(m=>{
-            const stamp=new Date(m.created_at).toLocaleString(language==="pl"?"pl-PL":"en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
-            const author=m.author_id===user.id?t("you"):(names[m.author_id]||"Friend");
-            return '<article class="forum-post"><div class="forum-post-header"><strong>'+esc(author)+'</strong><small>'+esc(stamp)+'</small></div><p>'+esc(m.body)+'</p>'+
-              (m.author_id===user.id?'<div class="forum-post-actions">'+button("delete",t("delete"),"link",'data-id="'+esc(m.id)+'"')+'</div>':'')+'</article>';
-          }).join("");
-          html+='<p class="wf-small">'+t("auto")+'</p>';
-          html+='<p class="wf-small">'+t("noPush")+'</p>';
-          if("Notification" in window)html+=button("alerts",t("enabled"),"secondary");
+      const membersView=!!root.parentElement.dataset.members;
+      const context=[user.id,group?.id,scope,membersView].join("/");
+      if(context!==menuContext){menuOpen=false;menuContext=context}
+      if(group&&profile){
+        const label=language==="pl"?"Opcje drużyny":"Team options";
+        html='<div class="mw-chat-head"><span class="mw-avatar" aria-hidden="true">'+esc(Array.from(group.name)[0]?.toUpperCase()||"•")+'</span><div><strong>'+esc(group.name)+'</strong><small>'+esc(membersView?(language==="pl"?"Drużyna":"Team"):(scope==="general"?(language==="pl"?"Czat drużyny":"Team chat"):scope.toUpperCase()))+'</small></div><button type="button" class="mw-more" data-wf-action="menu" aria-label="'+label+'" title="'+label+'" aria-expanded="'+menuOpen+'">⋮</button></div>';
+        if(!membersView&&!menuOpen)html+=conversation();
       }
       if(group&&profile){
           if(root.parentElement.dataset.members){
@@ -214,6 +222,11 @@
             }
           }
       }
+      if(group&&profile){
+        html+='<div class="mw-menu" '+(menuOpen?'':'hidden')+'>';
+        if(!membersView)html+='<button class="wf-btn secondary" data-action="forum-back">'+(language==="pl"?"Członkowie i postępy":"Members and progress")+'</button>';
+      }
+      if(profile)html+='<details class="wf-details"><summary>'+(language==="pl"?"Mój profil":"My profile")+'</summary>';
       html+='<div class="wf-account"><small>'+t("welcome")+': '+esc(user.email||"")+'</small>'+button("signout",t("logout"),"link")+'</div>';
       if(!profile){
         html+='<h3>'+t("profileNeeded")+'</h3>'+field("wf-nick",t("nickname"),"text",t("nickname"),friendName, 'maxlength="40"');
@@ -221,36 +234,58 @@
       }else{
         html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
         html+='<details class="wf-details"><summary>'+t("handle")+(inboxUser===user.id&&myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",inboxUser===user.id?myHandle:"")+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
-        html+='<h3>'+t("inbox")+'</h3>'+button("reload-inbox",t("refresh"),"secondary");
+        html+='</details><details class="wf-details" '+(inboxUser===user.id&&inbox.length?'open':'')+'><summary>'+t("inbox")+(inboxUser===user.id&&inbox.length?' ('+inbox.length+')':'')+'</summary>'+button("reload-inbox",t("refresh"),"secondary");
         if(inboxUser===user.id&&inbox.length){
           for(const invite of inbox){
             const attr='data-id="'+esc(invite.invite_id)+'"';
             html+='<div class="wf-account"><span>'+esc(invite.group_name)+' · '+esc(invite.inviter_name)+'</span>'+button("accept-invite",t("accept"),"",attr)+button("decline-invite",t("decline"),"secondary",attr)+'</div>';
           }
         }else html+='<p class="wf-small">'+t("emptyInbox")+'</p>';
-        html+='<h3>'+t("groups")+'</h3>';
+        html+='</details>';
         if(groups.length){
           html+='<label class="wf-field">'+t("selectGroup")+'<select id="wf-group">'+groups.map(g=>'<option value="'+esc(g.id)+'" '+(group?.id===g.id?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></label>';
         }else{
           html+='<p class="wf-info">'+t("noGroups")+'</p>';
         }
-        html+='<details class="wf-details" '+(!groups.length?'open':'')+'><summary>+ '+t("createGroup")+'</summary>'+field("wf-groupname",t("groupName"),"text","My Workout",'','maxlength="60"')+button("create",t("create"),"",busy?"disabled":"")+'</details>';
-        html+='<details class="wf-details" '+(!groups.length||validUUID(pendingCode)?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",validUUID(pendingCode)?pendingCode:"",'maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
+        html+='<details class="wf-details" '+''+'><summary>+ '+t("createGroup")+'</summary>'+field("wf-groupname",t("groupName"),"text","My Workout",'','maxlength="60"')+button("create",t("create"),"",busy?"disabled":"")+'</details>';
+        html+='<details class="wf-details" '+(validUUID(pendingCode)?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",validUUID(pendingCode)?pendingCode:"",'maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
         if(group){
-          html+='<p class="wf-info">🔒 '+esc(group.name)+' · '+t("sessionInfo")+'</p>';
+
           if(group.owner_id===user.id){
+            html+='<details class="wf-details"><summary>'+t("invite")+'</summary>';
             html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
             html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
             if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
-            html+='<p class="wf-small">'+t("inviteInfo")+'</p></details>';
+            html+='<p class="wf-small">'+t("inviteInfo")+'</p></details></details>';
           }
 
         }
       }
     }
+    if(user&&profile&&group){
+      html+=button("refresh",t("refresh"),"secondary");
+      if(!root.parentElement.dataset.members && notificationSettings){
+        html+='<details class="wf-details"><summary>'+(language==="pl"?"Powiadomienia":"Notifications")+'</summary>'+notificationSettings()+("Notification" in window?button("alerts",t("enabled"),"secondary"):"")+'</details>';
+      }
+      html+='</div>';
+    }
     if(notice)html+='<p class="wf-ok" role="status">'+esc(notice)+'</p>';
     if(error&&client)html+='<p class="wf-error" role="alert">'+esc(error)+'</p>';
+    const stream=root.querySelector(".mw-stream"),previous=stream?.scrollTop||0;
+    const bottom=!stream||stream.scrollHeight-stream.clientHeight-previous<44||stream.dataset.thread!==draftKey();
+    const writing=document.activeElement?.id==="wf-message";
+    const caret=writing?document.activeElement.selectionStart:0;
+    const same=root.dataset.context===menuContext&&root.dataset.menu===String(menuOpen);
+    const expanded=same?Array.from(root.querySelectorAll("details[open] > summary"),el=>el.textContent):[];
+    const editing=same&&root.contains(document.activeElement)?document.activeElement:null;
+    const fieldState=editing?.matches('input:not([type=checkbox]), textarea')&&editing.id!=="wf-message"?{id:editing.id,value:editing.value}:null;
     root.innerHTML=html;
+    root.dataset.context=menuContext;root.dataset.menu=String(menuOpen);
+    for(const summary of root.querySelectorAll("details > summary"))if(expanded.includes(summary.textContent))summary.parentElement.open=true;
+    if(fieldState){const field=document.getElementById(fieldState.id);if(field){field.value=fieldState.value;field.focus({preventScroll:true})}}
+    const next=root.querySelector(".mw-stream");
+    if(next){next.dataset.thread=draftKey();next.scrollTop=bottom?next.scrollHeight:previous}
+    if(writing&&next){const input=root.querySelector("#wf-message");input.focus({preventScroll:true});input.setSelectionRange(caret,caret)}
   }
   async function refreshAccount(){
     if(!client)return;
@@ -373,6 +408,7 @@
     error="";notice="";
     busy=true;
     try{
+      if(action==="menu"){menuOpen=!menuOpen;return}
       if(action==="sharing"){
         const gid=group.id,uid=user.id,sharing=button.checked;
         const values={sharing,...(sharing?totalsForSharing():{exercises:null,workouts:null})};
@@ -450,7 +486,7 @@
         if(!text)throw new Error(t("message"));
         const r=await client.from("mw_messages").insert({group_id:group.id,thread_key:scope,author_id:user.id,body:text});
         if(r.error)throw r.error;
-        delete drafts[scope];notice=t("added");await loadMessages();
+        delete drafts[draftKey()];notice="";await loadMessages();
       }else if(action==="refresh"){await loadMessages()}
       else if(action==="delete"){
         const id=button.dataset.id;
