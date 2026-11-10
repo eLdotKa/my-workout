@@ -303,9 +303,7 @@
         html+='</div>';
       }
     }
-    if(user&&profile&&group){
-      html+=button("refresh",t("refresh"),"secondary");
-    }
+    if(user&&profile&&group&&scope!=="account")html+=button("refresh",t("refresh"),"secondary");
     if(notice)html+='<p class="wf-ok" role="status">'+esc(notice)+'</p>';
     if(error&&client)html+='<p class="wf-error" role="alert">'+esc(error)+'</p>';
     const stream=root.querySelector(".mw-stream"),previous=stream?.scrollTop||0;
