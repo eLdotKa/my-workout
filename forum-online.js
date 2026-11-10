@@ -14,7 +14,7 @@
       welcome:"Twoje konto",logout:"Wyloguj",nickname:"Twoja nazwa na forum",saveNickname:"Zapisz nazwę",profileNeeded:"Wybierz nazwę widoczną dla znajomych.",
       groups:"Prywatne grupy",createGroup:"Utwórz własną grupę",groupName:"Nazwa grupy, np. Ekipa z siłowni",create:"Utwórz",
       join:"Dołącz do grupy",inviteCode:"Wklej kod zaproszenia (UUID) lub pełny link",joinButton:"Dołącz",noGroups:"Utwórz grupę albo wklej zaproszenie otrzymane od znajomego.",
-      activeGroup:"Aktywna grupa",invite:"Zaproś znajomych",makeInvite:"Wygeneruj zaproszenie",copyInvite:"Kopiuj link",shareInvite:"Udostępnij zaproszenie",
+      activeGroup:"Aktywna grupa",invite:"Zaproś znajomych",makeInvite:"Wygeneruj zaproszenie",copyInvite:"Kopiuj kod",shareInvite:"Udostępnij zaproszenie",
       inviteInfo:"Zaproszenie wygasa po 7 dniach lub po 10 wykorzystaniach.",groupError:"Nie udało się pobrać grup.",
       posts:"Wiadomości",message:"Twoja wiadomość…",send:"Wyślij",noMessages:"Na razie nie ma wiadomości. Rozpocznij rozmowę.",
       delete:"Usuń",deleteConfirm:"Usunąć tę wiadomość?",refresh:"Odśwież",now:"Teraz",sessionInfo:"Tylko osoby z tej grupy widzą wiadomości.",
@@ -37,7 +37,7 @@
       welcome:"Your account",logout:"Sign out",nickname:"Your forum nickname",saveNickname:"Save nickname",profileNeeded:"Choose a name that friends can see.",
       groups:"Private groups",createGroup:"Create a group",groupName:"Group name, e.g. Gym Crew",create:"Create",
       join:"Join a group",inviteCode:"Paste invite UUID or full link",joinButton:"Join",noGroups:"Create a group or paste an invitation from a friend.",
-      activeGroup:"Current group",invite:"Invite friends",makeInvite:"Generate invite",copyInvite:"Copy link",shareInvite:"Share invite",
+      activeGroup:"Current group",invite:"Invite friends",makeInvite:"Generate invite",copyInvite:"Copy code",shareInvite:"Share invite",
       inviteInfo:"Invitations expire after 7 days or 10 uses.",groupError:"Could not load groups.",
       posts:"Messages",message:"Write a message…",send:"Send",noMessages:"No messages yet. Start the conversation.",
       delete:"Delete",deleteConfirm:"Delete this message?",refresh:"Refresh",now:"Now",sessionInfo:"Only members of this group can see the messages.",
@@ -56,7 +56,7 @@
   const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let language="en",prefs={messages:true,muteUntil:null},root=null,scope="general",onRemotePrefs=null;
   let client=null,loadingClient=null,boot=null,user=null,profile="",groups=[],group=null,messages=[],names={},channel=null,channelGroup="";
-  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteLink="",started=false,requestId=0,drafts={},friendName="",automaticProfileAttemptedFor="";
+  let email="",notice="",error="",busy=false,lastPrefsUid="",inviteCode="",started=false,requestId=0,drafts={},friendName="",automaticProfileAttemptedFor="";
   const t=k=>(LANG[language]||LANG.en)[k]||k;
   function apiError(e){
     const v=String(e?.message||e||t("actionError")).slice(0,220);
@@ -99,6 +99,7 @@
     await refreshAccount();
     return client;
   }
+  let roster=[], inviteGroup="", pendingCode=new URLSearchParams(location.search).get("mw_invite")||"";
   function mount(options={}){
     language=options.lang==="pl"?"pl":"en";
     friendName=typeof options.friendName==="string"?options.friendName.trim().slice(0,40):"";
@@ -153,14 +154,17 @@
           html+='<p class="wf-info">'+t("noGroups")+'</p>';
         }
         html+='<details class="wf-details" '+(!groups.length?'open':'')+'><summary>+ '+t("createGroup")+'</summary>'+field("wf-groupname",t("groupName"),"text","My Workout",'','maxlength="60"')+button("create",t("create"),"",busy?"disabled":"")+'</details>';
-        html+='<details class="wf-details" '+(!groups.length?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",'','maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
+        html+='<details class="wf-details" '+(!groups.length||validUUID(pendingCode)?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",validUUID(pendingCode)?pendingCode:"",'maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
         if(group){
           html+='<p class="wf-info">🔒 '+esc(group.name)+' · '+t("sessionInfo")+'</p>';
           if(group.owner_id===user.id){
-            html+='<details class="wf-details"><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
-            if(inviteLink) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteLink)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
+            html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
+            if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
             html+='<p class="wf-small">'+t("inviteInfo")+'</p></details>';
           }
+          if(root.parentElement.dataset.members){
+            html+='<h3>'+ (language==="pl"?"Członkowie drużyny":"Team members")+'</h3><ul>'+roster.map(n=>'<li>'+esc(n)+'</li>').join("")+'</ul>';
+          }else{
           html+='<div class="wf-compose"><textarea class="forum-text" id="wf-message" maxlength="500" placeholder="'+t("message")+'" aria-label="'+t("message")+'">'+esc(drafts[scope]||"")+'</textarea>'+button("send",t("send"),"",busy?"disabled":"")+'</div>';
           html+='<div class="wf-header"><h3>'+t("messageCount")+'</h3>'+button("refresh","↻ "+t("refresh"),"secondary")+'</div>';
           if(!messages.length)html+='<p class="wf-info">'+t("noMessages")+'</p>';
@@ -173,6 +177,7 @@
           html+='<p class="wf-small">'+t("auto")+'</p>';
           html+='<p class="wf-small">'+t("noPush")+'</p>';
           if("Notification" in window)html+=button("alerts",t("enabled"),"secondary");
+          }
         }
       }
     }
@@ -183,7 +188,7 @@
   async function refreshAccount(){
     if(!client)return;
     if(channel){await client.removeChannel(channel);channel=null;channelGroup=""}
-    if(!user){profile="";groups=[];group=null;messages=[];draw();return}
+    if(!user){profile="";groups=[];group=null;messages=[];roster=[];inviteCode="";inviteGroup="";draw();return}
     const prof=await client.from("mw_profiles").select("nickname").eq("user_id",user.id).maybeSingle();
     if(prof.error)throw prof.error;
     profile=prof.data?.nickname||"";
@@ -209,19 +214,22 @@
       const remote=await client.from("mw_notification_prefs").select("messages_enabled,mute_until").eq("user_id",user.id).maybeSingle();
       if(!remote.error&&remote.data&&onRemotePrefs)onRemotePrefs(remote.data);
     }
-    const urlToken=(String(location.search||"").match(/(?:\?|&)mw_invite=([0-9a-f-]{36})(?:&|$)/i)||[])[1]||null;
-    if(urlToken&&validUUID(urlToken)){
-      try{
-        await joinInvite(urlToken,true);
-        history.replaceState({},document.title,location.pathname||"/my-workout/");
-        await refreshAccount();return;
-      }catch(e){error=apiError(e)}
-    }
     await loadMessages();
   }
   async function loadMessages(){
     if(!client||!user||!group){messages=[];draw();return}
     const targetGroup=group.id,targetScope=scope,number=++requestId;
+    if(root?.parentElement.dataset.members){
+      const members=await client.from("mw_members").select("user_id").eq("group_id",targetGroup);
+      if(members.error)throw members.error;
+      const ids=members.data.map(m=>m.user_id);
+      const profiles=ids.length?await client.from("mw_profiles").select("user_id,nickname").in("user_id",ids):{data:[]};
+      if(profiles.error)throw profiles.error;
+      if(number!==requestId||targetGroup!==group?.id)return;
+      const byId=new Map(profiles.data.map(p=>[p.user_id,p.nickname]));
+      roster=ids.map(id=>byId.get(id)||(language==="pl"?"Członek":"Member"));
+      draw();return;
+    }
     const out=await client.from("mw_messages").select("id,group_id,thread_key,author_id,body,created_at")
       .eq("group_id",targetGroup).eq("thread_key",targetScope)
       .order("created_at",{ascending:false}).limit(100);
@@ -318,16 +326,19 @@
       }else if(action==="join"){
         const token=document.getElementById("wf-invite")?.value;
         await joinInvite(token);
+        pendingCode="";
+        if(new URLSearchParams(location.search).has("mw_invite"))history.replaceState({},document.title,location.pathname+location.hash);
       }else if(action==="make-invite"){
         if(!group||group.owner_id!==user?.id)throw new Error(t("notOwner"));
         const r=await client.rpc("mw_create_invite",{p_group:group.id});if(r.error)throw r.error;
-        inviteLink=APP+"?mw_invite="+r.data;
+        inviteCode=r.data;inviteGroup=group.id;
       }else if(action==="copy-invite"){
-        const val=document.getElementById("wf-link")?.value||inviteLink;
+        const val=document.getElementById("wf-link")?.value||inviteCode;
         if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(val);notice=t("copied")}
         else{const field=document.getElementById("wf-link");field?.select();notice=t("copyInvite")}
       }else if(action==="share-invite"){
-        if(navigator.share)await navigator.share({title:"My Workout",text:inviteLink,url:inviteLink});
+        const inviteLink=APP+"?mw_invite="+encodeURIComponent(inviteCode);
+        if(navigator.share)await navigator.share({title:"My Workout",url:inviteLink});
         else if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(inviteLink);notice=t("copied")}
       }else if(action==="send"){
         const input=document.getElementById("wf-message");
@@ -362,7 +373,7 @@
     if(event.target.id!=="wf-group")return;
     const selected=groups.find(g=>g.id===event.target.value);
     if(!selected||selected.id===group?.id)return;
-    group=selected;inviteLink="";messages=[];names={};
+    group=selected;roster=[];inviteCode="";inviteGroup="";messages=[];names={};
     try{localStorage.setItem(GROUP_KEY,group.id)}catch(_){}
     loadMessages().catch(e=>setStatus("",apiError(e)));
   }
