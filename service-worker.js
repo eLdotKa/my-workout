@@ -1,4 +1,16 @@
-const CACHE='shortcut-to-size-checklist-v22';const ASSETS=['./','./index.html','./manifest.webmanifest','./exercise-illustrations.js','./forum-online.js','./workout-catalog.js','./custom-workouts.html','./guide.html','./apple-touch-icon.png','./icons/icon-192.png','./icons/icon-512.png','./icons/icon.svg'];self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()))});self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('shortcut-to-size-checklist-v')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||new URL(e.request.url).origin!==self.location.origin)return;e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})
+const CACHE='shortcut-to-size-checklist-v23';const ASSETS=['./','./index.html','./manifest.webmanifest','./exercise-illustrations.js','./forum-online.js','./workout-catalog.js','./custom-workouts.html','./guide.html','./apple-touch-icon.png','./icons/icon-192.png','./icons/icon-512.png','./icons/icon.svg'];self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()))});self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('shortcut-to-size-checklist-v')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});self.addEventListener('fetch',e=>{
+  if(e.request.method!=='GET'||new URL(e.request.url).origin!==self.location.origin)return;
+  const path=new URL(e.request.url).pathname;
+  const fresh=e.request.mode==='navigate'||path.endsWith('/index.html')||path.endsWith('/forum-online.js');
+  if(!fresh){e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));return}
+  e.respondWith(fetch(e.request).then(async response=>{
+    if(response.ok){const cache=await caches.open(CACHE);await cache.put(e.request,response.clone())}
+    return response;
+  }).catch(async()=>{
+    const cached=await caches.match(e.request);
+    return cached||Response.error();
+  }));
+})
 // Real Web Push. Show a user-visible notification immediately (required by iOS).
 self.addEventListener('push',event=>{
   let payload={};
