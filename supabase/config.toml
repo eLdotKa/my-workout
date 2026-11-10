@@ -1,0 +1,5 @@
+# This function accepts a database webhook without a JWT.
+# It authenticates POST requests with MW_WEBHOOK_SECRET inside the handler.
+# The GET endpoint exposes only the public VAPID key for browser subscription.
+[functions.mw-push]
+verify_jwt = false
