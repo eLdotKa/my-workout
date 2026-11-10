@@ -102,13 +102,22 @@
     await refreshAccount();
     return client;
   }
-  let myHandle="",inbox=[],inboxUser="";
+  let myHandle="",inbox=[],inboxUser="",extraFeaturesAvailable=true;
   async function loadInvitations(){
     const uid=user?.id;
     if(!uid)return;
     const [own,invites]=await Promise.all([client.rpc("mw_my_invite_handle"),client.rpc("mw_my_invitations")]);
     if(uid!==user?.id)return;
-    if(own.error||invites.error)throw own.error||invites.error;
+    // Optional invitation-by-handle functions are introduced by a later SQL migration.
+    // Never prevent existing private groups and chat from loading when that migration
+    // has not yet been run in Supabase.
+    if(own.error||invites.error){
+      extraFeaturesAvailable=false;
+      inboxUser=uid;myHandle="";inbox=[];
+      console.info("My Workout: optional invitation features are not configured yet");
+      return;
+    }
+    extraFeaturesAvailable=true;
     inboxUser=uid;myHandle=own.data||"";inbox=invites.data||[];
   }
   let totalsForSharing=null,progressRows=[],progressGroup="",progressUser="",flushing=false,retryTimer;
@@ -200,6 +209,9 @@
       if(error)html+='<p class="wf-error">'+esc(error)+'</p><p class="wf-info">'+t("offline")+'</p>';
     }else if(!user){
       html+='<h3>'+t("login")+'</h3><p class="wf-info">'+t("loginInfo")+'</p>';
+      html+='<p class="wf-small">'+(language==="pl"?
+        "Jeśli po dodaniu My Workout do ekranu głównego nie widzisz swojej grupy, zaloguj się tutaj tym samym kontem. Grupa i wiadomości są nadal w Supabase.":
+        "If your group disappeared after adding My Workout to the Home Screen, sign in here with your original account. Your groups and messages remain in Supabase.")+'</p>';
       html+=field("wf-email",t("email"),"email","name@example.com",email,'autocomplete="email" inputmode="email"');
       html+=button("email",t("loginButton"),"",busy?"disabled":"");
       html+=field("wf-otp",t("code"),"text","123456","",'inputmode="numeric" autocomplete="one-time-code" maxlength="12"');
@@ -239,15 +251,16 @@
         html+=button("nickname",t("saveNickname"),"",busy?"disabled":"");
       }else{
         html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
-        html+='<details class="wf-details"><summary>'+t("handle")+(inboxUser===user.id&&myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",inboxUser===user.id?myHandle:"")+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
-        html+='</details><details class="wf-details" '+(inboxUser===user.id&&inbox.length?'open':'')+'><summary>'+t("inbox")+(inboxUser===user.id&&inbox.length?' ('+inbox.length+')':'')+'</summary>'+button("reload-inbox",t("refresh"),"secondary");
-        if(inboxUser===user.id&&inbox.length){
+        if(extraFeaturesAvailable)html+='<details class="wf-details"><summary>'+t("handle")+(inboxUser===user.id&&myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",inboxUser===user.id?myHandle:"")+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
+        html+='</details>';
+        if(extraFeaturesAvailable)html+='<details class="wf-details" '+(inboxUser===user.id&&inbox.length?'open':'')+'><summary>'+t("inbox")+(inboxUser===user.id&&inbox.length?' ('+inbox.length+')':'')+'</summary>'+button("reload-inbox",t("refresh"),"secondary");
+        if(extraFeaturesAvailable&&inboxUser===user.id&&inbox.length){
           for(const invite of inbox){
             const attr='data-id="'+esc(invite.invite_id)+'"';
             html+='<div class="wf-account"><span>'+esc(invite.group_name)+' · '+esc(invite.inviter_name)+'</span>'+button("accept-invite",t("accept"),"",attr)+button("decline-invite",t("decline"),"secondary",attr)+'</div>';
           }
-        }else html+='<p class="wf-small">'+t("emptyInbox")+'</p>';
-        html+='</details>';
+        }else if(extraFeaturesAvailable)html+='<p class="wf-small">'+t("emptyInbox")+'</p>';
+        if(extraFeaturesAvailable)html+='</details>';
         if(groups.length){
           html+='<label class="wf-field">'+t("selectGroup")+'<select id="wf-group">'+groups.map(g=>'<option value="'+esc(g.id)+'" '+(group?.id===g.id?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></label>';
         }else{
@@ -259,7 +272,7 @@
 
           if(group.owner_id===user.id){
             html+='<details class="wf-details"><summary>'+t("invite")+'</summary>';
-            html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
+            if(extraFeaturesAvailable)html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
             html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
             if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
             html+='<p class="wf-small">'+t("inviteInfo")+'</p></details></details>';
@@ -328,8 +341,8 @@
     }
     const gs=await client.from("mw_groups").select("id,name,owner_id").order("created_at",{ascending:false});
     if(gs.error)throw gs.error;
-    await loadInvitations();
     groups=gs.data||[];
+    await loadInvitations();
     let preferred="";
     try{preferred=localStorage.getItem(GROUP_KEY)||""}catch(_){}
     group=groups.find(g=>g.id===preferred)||groups[0]||null;
