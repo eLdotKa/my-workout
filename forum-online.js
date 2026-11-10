@@ -255,6 +255,16 @@
       html+='<h3>'+(language==="pl"?"Moje konto":"My account")+'</h3>';
       html+='<p class="wf-info">'+esc(user.email||"")+'</p>';
       html+=button("signout",language==="pl"?"Wyloguj":"Sign out","secondary");
+      if(!profile){html+='<h3>'+t("profileNeeded")+'</h3>'+field("wf-nick",t("nickname"),"text",t("nickname"),friendName,'maxlength="40"')+button("nickname",t("saveNickname"));}
+      else{
+        html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
+        if(extraFeaturesAvailable)html+='<details class="wf-details"><summary>'+t("handle")+(myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",myHandle)+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
+        if(extraFeaturesAvailable)html+='<details class="wf-details" '+(inbox.length?'open':'')+'><summary>'+t("inbox")+(inbox.length?' ('+inbox.length+')':'')+'</summary>'+button("reload-inbox",t("refresh"),"secondary")+(inbox.length?inbox.map(invite=>'<div class="wf-account"><span>'+esc(invite.group_name)+' · '+esc(invite.inviter_name)+'</span>'+button("accept-invite",t("accept"),"",'data-id="'+esc(invite.invite_id)+'"')+button("decline-invite",t("decline"),"secondary",'data-id="'+esc(invite.invite_id)+'"')+'</div>').join(""):'<p class="wf-small">'+t("emptyInbox")+'</p>')+'</details>';
+      }
+      html+='<h3>'+(language==="pl"?"Moje grupy":"My groups")+'</h3>';
+      if(groups.length)html+='<p class="wf-small">'+groups.map(g=>esc(g.name)).join(' · ')+'</p>';
+      html+='<details class="wf-details"><summary>+ '+t("createGroup")+'</summary>'+field("wf-groupname",t("groupName"),"text","My Workout",'','maxlength="60"')+button("create",t("create"),"",busy?"disabled":"")+'</details>';
+      html+='<details class="wf-details" '+(validUUID(pendingCode)?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",validUUID(pendingCode)?pendingCode:"",'maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
     }else{
       const membersView=!!root.parentElement.dataset.members;
       const context=[user.id,group?.id,scope,membersView].join("/");
@@ -278,54 +288,22 @@
             }
           }
       }
+      if(!group){html+='<p class="wf-info">'+(language==="pl"?"Nie wybrano grupy. Utwórz ją lub dołącz w Settings.":"No team selected. Create or join one in Settings.")+'</p>';}
       if(group&&profile){
         html+='<div class="mw-menu" '+(menuOpen?'':'hidden')+'>';
         if(!membersView)html+='<button class="wf-btn secondary" data-action="forum-back">'+(language==="pl"?"Członkowie i postępy":"Members and progress")+'</button>';
-      }
-      if(profile)html+='<details class="wf-details"><summary>'+(language==="pl"?"Mój profil":"My profile")+'</summary>';
-      html+='<div class="wf-account"><small>'+t("welcome")+': '+esc(user.email||"")+'</small>'+button("signout",t("logout"),"link")+'</div>';
-      if(!profile){
-        html+='<h3>'+t("profileNeeded")+'</h3>'+field("wf-nick",t("nickname"),"text",t("nickname"),friendName, 'maxlength="40"');
-        html+=button("nickname",t("saveNickname"),"",busy?"disabled":"");
-      }else{
-        html+='<div class="wf-account"><span>👤 '+esc(profile)+'</span>'+button("edit-nick","✎","link")+'</div>';
-        if(extraFeaturesAvailable)html+='<details class="wf-details"><summary>'+t("handle")+(inboxUser===user.id&&myHandle?' · @'+esc(myHandle):'')+'</summary>'+field("wf-handle",t("handle"),"text","@name",inboxUser===user.id?myHandle:"")+'<p>'+t("handleHelp")+'</p>'+button("save-handle",t("save"))+'</details>';
-        html+='</details>';
-        if(extraFeaturesAvailable)html+='<details class="wf-details" '+(inboxUser===user.id&&inbox.length?'open':'')+'><summary>'+t("inbox")+(inboxUser===user.id&&inbox.length?' ('+inbox.length+')':'')+'</summary>'+button("reload-inbox",t("refresh"),"secondary");
-        if(extraFeaturesAvailable&&inboxUser===user.id&&inbox.length){
-          for(const invite of inbox){
-            const attr='data-id="'+esc(invite.invite_id)+'"';
-            html+='<div class="wf-account"><span>'+esc(invite.group_name)+' · '+esc(invite.inviter_name)+'</span>'+button("accept-invite",t("accept"),"",attr)+button("decline-invite",t("decline"),"secondary",attr)+'</div>';
-          }
-        }else if(extraFeaturesAvailable)html+='<p class="wf-small">'+t("emptyInbox")+'</p>';
-        if(extraFeaturesAvailable)html+='</details>';
-        if(groups.length){
-          html+='<label class="wf-field">'+t("selectGroup")+'<select id="wf-group">'+groups.map(g=>'<option value="'+esc(g.id)+'" '+(group?.id===g.id?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></label>';
-        }else{
-          html+='<p class="wf-info">'+t("noGroups")+'</p>';
+        html+='<h3>'+(language==="pl"?"Ta grupa":"This team")+'</h3>';
+        if(group.owner_id===user.id){
+          html+='<details class="wf-details"><summary>'+t("invite")+'</summary>';
+          if(extraFeaturesAvailable)html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
+          html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
+          if(inviteGroup===group.id&&inviteCode)html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
+          html+='<p class="wf-small">'+t("inviteInfo")+'</p></details></details>';
         }
-        html+='<details class="wf-details" '+''+'><summary>+ '+t("createGroup")+'</summary>'+field("wf-groupname",t("groupName"),"text","My Workout",'','maxlength="60"')+button("create",t("create"),"",busy?"disabled":"")+'</details>';
-        html+='<details class="wf-details" '+(validUUID(pendingCode)?'open':'')+'><summary>↳ '+t("join")+'</summary>'+field("wf-invite",t("inviteCode"),"text","xxxxxxxx-xxxx-...",validUUID(pendingCode)?pendingCode:"",'maxlength="250"')+button("join",t("joinButton"),"",busy?"disabled":"")+'</details>';
-        if(group){
-
-          if(group.owner_id===user.id){
-            html+='<details class="wf-details"><summary>'+t("invite")+'</summary>';
-            if(extraFeaturesAvailable)html+=field("wf-target",t("inviteByName"),"text","@name")+button("invite-handle",t("sendInvite"));
-            html+='<details class="wf-details" '+(inviteGroup===group.id?'open':'')+'><summary>🔗 '+t("invite")+'</summary>'+button("make-invite",t("makeInvite"),"",busy?"disabled":"");
-            if(inviteGroup===group.id && inviteCode) html+='<div class="wf-copy"><input id="wf-link" readonly value="'+esc(inviteCode)+'">'+button("copy-invite",t("copyInvite"),"secondary")+button("share-invite",t("shareInvite"),"secondary")+'</div>';
-            html+='<p class="wf-small">'+t("inviteInfo")+'</p></details></details>';
-          }
-
-        }
+        html+='</div>';
       }
     }
-    if(user&&profile&&group){
-      html+=button("refresh",t("refresh"),"secondary");
-      if(!root.parentElement.dataset.members && notificationSettings){
-        html+='<details class="wf-details"><summary>'+(language==="pl"?"Powiadomienia":"Notifications")+'</summary>'+notificationSettings()+("Notification" in window?button("alerts",t("enabled"),"secondary"):"")+'</details>';
-      }
-      html+='</div>';
-    }
+    if(user&&profile&&group&&scope!=="account")html+=button("refresh",t("refresh"),"secondary");
     if(notice)html+='<p class="wf-ok" role="status">'+esc(notice)+'</p>';
     if(error&&client)html+='<p class="wf-error" role="alert">'+esc(error)+'</p>';
     const stream=root.querySelector(".mw-stream"),previous=stream?.scrollTop||0;
