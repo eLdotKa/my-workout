@@ -202,6 +202,7 @@
       try{
         await joinInvite(urlToken,true);
         const clean=new URL(location.href);clean.searchParams.delete("mw_invite");history.replaceState({},document.title,clean.toString());
+        await refreshAccount();return;
       }catch(e){error=apiError(e)}
     }
     await loadMessages();
@@ -272,7 +273,7 @@
   async function act(action,button){
     if(busy)return;
     error="";notice="";
-    busy=true;draw();
+    busy=true;
     try{
       if(action==="email"){
         const v=(document.getElementById("wf-email")?.value||email).trim();
